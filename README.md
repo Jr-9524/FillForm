@@ -84,6 +84,27 @@ blanks the text rules missed:
   rules. Scanned/image-only PDFs still need OCR (a later stretch,
   not V1).
 
+## Textarea boxes (2026-11-21, after the alignment fix)
+
+Big empty boxes (writing areas) are detected as textarea fields,
+not thin single-line strips:
+
+- Drawn rectangles (60pt+ wide, 18–200pt tall) are read from the
+  PDF's vector paths; section frames that contain other boxes are
+  excluded.
+- The box is claimed by its lowest label that has no blank yet —
+  the label can end with ":" or not ("Student's Strengths,
+  Preferences & Interests" has no colon). The textarea runs from
+  just below that label to the next label below it (or the box
+  bottom), so it never covers other labels ("Measurable Annual Goal
+  1" stops above "Person Responsible:").
+- On the IEP: all 8 Present Levels boxes, the goal-table cells
+  (Area of need, Baseline, Annual Goal, Short-term objectives,
+  Progress Reports, Comment) — 119 fields total (was 113).
+- The fill form shows a real multi-line box (rows sized to the box),
+  and the filled PDF word-wraps the answer inside the box,
+  shrinking the font if needed.
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

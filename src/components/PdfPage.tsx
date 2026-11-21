@@ -120,18 +120,27 @@ export function PdfPage({
               // is scaled down by CSS. PDF y is bottom-up, CSS is top-down.
               // Detection y is the blank line itself, so a text box
               // straddles it (5pt below to 9pt above) instead of
-              // floating above it; a checkbox box is the square itself.
+              // floating above it; a checkbox box is the square
+              // itself; a textarea's y is the TOP of its box, so the
+              // box is drawn full-size.
               const left = (field.x / pageSize.width) * 100;
               const width = (field.width / pageSize.width) * 100;
               const isCheckbox = field.type === "checkbox";
+              const isTextarea = field.type === "textarea";
               const top =
                 ((pageSize.height -
                   field.y -
-                  (isCheckbox ? field.height : 9)) /
+                  (isTextarea ? 0 : isCheckbox ? field.height : 9)) /
                   pageSize.height) *
                 100;
               const height =
-                ((isCheckbox ? field.height : 14) / pageSize.height) * 100;
+                ((isTextarea
+                  ? field.height
+                  : isCheckbox
+                    ? field.height
+                    : 14) /
+                  pageSize.height) *
+                100;
               return (
                 <button
                   key={field.id}

@@ -108,7 +108,10 @@ export function FillForm({
                 <textarea
                   id={inputId}
                   value={value}
-                  rows={3}
+                  rows={Math.max(
+                    3,
+                    Math.min(10, Math.round(field.height / 24)),
+                  )}
                   onChange={(e) => onAnswerChange(field.id, e.target.value)}
                   className={commonClass}
                 />

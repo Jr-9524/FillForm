@@ -41,6 +41,8 @@ const PAINT_FILL = 22;
 
 type VecLine = { x1: number; y1: number; x2: number; y2: number };
 type VecSquare = { x: number; y: number; size: number };
+/** A drawn rectangle: y1 is the bottom edge, y2 the top edge. */
+type VecRect = { x1: number; y1: number; x2: number; y2: number };
 type Matrix = [number, number, number, number, number, number];
 
 /** Matrix multiply: apply b, then a. */
@@ -59,26 +61,30 @@ function mulMatrix(a: Matrix, b: Matrix): Matrix {
  * Read the page's drawn vector shapes: the blanks in a form are
  * usually drawn lines (stroked paths), not text — so the line itself
  * is the ground truth for where a blank is and how long it is.
- * Returns horizontal stroked lines (25–200pt) and small filled
- * squares (9–17pt, i.e. drawn checkboxes). `constructPath` args are
- * [paintOp, [interleaved DrawOPS path], bbox]; path ops are
- * moveTo 0 / lineTo 1 / curveTo 2 / quadraticCurveTo 3 / closePath 4.
+ * Returns horizontal stroked lines (25–200pt), small filled squares
+ * (9–17pt, i.e. drawn checkboxes) and drawn rectangles (writing
+ * boxes, 60pt+ wide, 25–200pt tall — section containers excluded).
+ * `constructPath` args are [paintOp, [interleaved DrawOPS path],
+ * bbox]; path ops are moveTo 0 / lineTo 1 / curveTo 2 /
+ * quadraticCurveTo 3 / closePath 4.
  */
 async function extractVector(
   page: PDFPageProxy,
-): Promise<{ lines: VecLine[]; squares: VecSquare[] }> {
+): Promise<{ lines: VecLine[]; squares: VecSquare[]; rects: VecRect[] }> {
   const lines: VecLine[] = [];
   const squares: VecSquare[] = [];
+  const rects: VecRect[] = [];
   let opList: Awaited<ReturnType<typeof page.getOperatorList>>;
   try {
     opList = await page.getOperatorList();
   } catch {
-    return { lines, squares };
+    return { lines, squares, rects };
   }
 
   let ctm: Matrix = [1, 0, 0, 1, 0, 0];
   const stack: Matrix[] = [];
   const fillSegs: VecLine[] = [];
+  const strokeSegs: VecLine[] = [];
 
   for (let i = 0; i < opList.fnArray.length; i++) {
     const fn = opList.fnArray[i];
@@ -134,31 +140,126 @@ async function extractVector(
         const x2 = ctm[0] * s.x2 + ctm[2] * s.y2 + ctm[4];
         const y2 = ctm[1] * s.x2 + ctm[3] * s.y2 + ctm[5];
         if (paintOp === PAINT_STROKE) {
-          if (Math.abs(y2 - y1) > 0.6) continue;
-          const len = Math.abs(x2 - x1);
-          if (len < 25 || len > 200) continue;
-          const line: VecLine = {
-            x1: Math.min(x1, x2),
-            y1: (y1 + y2) / 2,
-            x2: Math.max(x1, x2),
-            y2: (y1 + y2) / 2,
-          };
-          if (
-            !lines.some(
-              (l) =>
-                Math.abs(l.y1 - line.y1) < 1 &&
-                Math.abs(l.x1 - line.x1) < 2 &&
-                Math.abs(l.x2 - line.x2) < 2,
-            )
-          ) {
-            lines.push(line);
-          }
+          strokeSegs.push({ x1, y1, x2, y2 });
         } else if (paintOp === PAINT_FILL) {
           fillSegs.push({ x1, y1, x2, y2 });
         }
       }
     }
   }
+
+  // Horizontal stroked lines (25–200pt): the single-line blanks.
+  for (const s of strokeSegs) {
+    if (Math.abs(s.y2 - s.y1) > 0.6) continue;
+    const len = Math.abs(s.x2 - s.x1);
+    if (len < 25 || len > 200) continue;
+    const line: VecLine = {
+      x1: Math.min(s.x1, s.x2),
+      y1: (s.y1 + s.y2) / 2,
+      x2: Math.max(s.x1, s.x2),
+      y2: (s.y1 + s.y2) / 2,
+    };
+    if (
+      !lines.some(
+        (l) =>
+          Math.abs(l.y1 - line.y1) < 1 &&
+          Math.abs(l.x1 - line.x1) < 2 &&
+          Math.abs(l.x2 - line.x2) < 2,
+      )
+    ) {
+      lines.push(line);
+    }
+  }
+
+  // Drawn rectangles (writing boxes): a top edge, the nearest
+  // matching bottom edge below it, and side verticals spanning them.
+  const dedupeSegs = (segs: VecLine[]): VecLine[] => {
+    const out: VecLine[] = [];
+    for (const s of segs) {
+      if (
+        !out.some(
+          (o) =>
+            Math.abs(o.x1 - s.x1) < 1 &&
+            Math.abs(o.y1 - s.y1) < 1 &&
+            Math.abs(o.x2 - s.x2) < 1 &&
+            Math.abs(o.y2 - s.y2) < 1,
+        )
+      ) {
+        out.push(s);
+      }
+    }
+    return out;
+  };
+  const hSegs = dedupeSegs(
+    strokeSegs.filter(
+      (s) => Math.abs(s.y2 - s.y1) < 0.6 && Math.abs(s.x2 - s.x1) >= 40,
+    ),
+  );
+  const vSegs = dedupeSegs(
+    strokeSegs.filter(
+      (s) => Math.abs(s.x2 - s.x1) < 0.6 && Math.abs(s.y2 - s.y1) >= 20,
+    ),
+  );
+  for (const h of hSegs) {
+    const x1 = Math.min(h.x1, h.x2);
+    const x2 = Math.max(h.x1, h.x2);
+    const yT = (h.y1 + h.y2) / 2;
+    let bestY: number | null = null;
+    for (const o of hSegs) {
+      const oy = (o.y1 + o.y2) / 2;
+      if (oy > yT - 15) continue;
+      if (
+        Math.abs(Math.min(o.x1, o.x2) - x1) > 3 ||
+        Math.abs(Math.max(o.x1, o.x2) - x2) > 3
+      ) {
+        continue;
+      }
+      if (bestY === null || oy > bestY) bestY = oy;
+    }
+    if (bestY === null) continue;
+    const yB = bestY;
+    const spans = (x: number) =>
+      vSegs.some(
+        (v) =>
+          Math.abs(v.x1 - x) < 3 &&
+          Math.min(v.y1, v.y2) <= yB + 2 &&
+          Math.max(v.y1, v.y2) >= yT - 2,
+      );
+    if (!spans(x1) || !spans(x2)) continue;
+    const w = x2 - x1;
+    const hh = yT - yB;
+    // Writing boxes can be short (the Present Levels boxes are
+    // 23–24pt tall); the 18pt floor keeps stroked checkbox outlines
+    // (~14pt) out.
+    if (w < 60 || hh < 18 || hh > 200) continue;
+    const rect: VecRect = { x1, y1: yB, x2, y2: yT };
+    if (
+      !rects.some(
+        (r) =>
+          Math.abs(r.x1 - x1) < 2 &&
+          Math.abs(r.x2 - x2) < 2 &&
+          Math.abs(r.y1 - yB) < 2 &&
+          Math.abs(r.y2 - yT) < 2,
+      )
+    ) {
+      rects.push(rect);
+    }
+  }
+  // Drop containers: a rect that fully contains another rect is a
+  // section frame, not a writing box.
+  const boxRects = rects.filter(
+    (r) =>
+      !rects.some(
+        (o) =>
+          o !== r &&
+          o.x1 >= r.x1 + 4 &&
+          o.y1 >= r.y1 + 4 &&
+          o.x2 <= r.x2 - 4 &&
+          o.y2 <= r.y2 - 4,
+      ),
+  );
+  rects.length = 0;
+  rects.push(...boxRects);
 
   // Drawn checkboxes: small filled rectangles, 9–17pt a side.
   // Group the small fill segments whose bounding boxes overlap.
@@ -198,7 +299,7 @@ async function extractVector(
     }
   }
 
-  return { lines, squares };
+  return { lines, squares, rects };
 }
 
 function isTextItem(item: unknown): item is PdfTextItem {
@@ -370,8 +471,12 @@ export async function detectFields(
     const viewport = page.getViewport({ scale: 1 });
     const pageWidth = viewport.width;
     const textContent = await page.getTextContent();
-    // Drawn lines/squares on this page — the real blanks.
-    const { lines: vectorLines, squares } = await extractVector(page);
+    // Drawn lines/squares/rects on this page — the real blanks.
+    const {
+      lines: vectorLines,
+      squares,
+      rects: vectorRects,
+    } = await extractVector(page);
     const unusedLines = [...vectorLines];
 
     const items: LineItem[] = (textContent.items as unknown[])
@@ -721,6 +826,157 @@ export async function detectFields(
         belowLine.y1,
         belowLine.x2 - belowLine.x1,
       );
+    }
+
+    // Textarea pass — big empty boxes (writing areas) with a label
+    // at the top or just above them. The label can end with ":" or
+    // not ("Student's Strengths, Preferences & Interests" has none).
+    // Runs after the line passes, so a label that already has a blank
+    // (line field, checkbox) is excluded; claimed labels skip pass 3.
+    // A box is claimed by its lowest label that has no blank yet, and
+    // the textarea runs from just below that label to the next label
+    // below it (or the box bottom), so it never covers other labels.
+    {
+      const isOptionLabel = (labelItem: LineItem): boolean => {
+        const lineOf = lines.find((l) => l.includes(labelItem));
+        if (
+          lineOf?.some(
+            (c) => c.x < labelItem.x && CHECKBOX_CHARS.has(c.str.trim()),
+          )
+        ) {
+          return true;
+        }
+        return squares.some(
+          (sq) =>
+            Math.abs(sq.y + sq.size / 2 - labelItem.y) <= 7 &&
+            labelItem.x - (sq.x + sq.size) >= -2 &&
+            labelItem.x - (sq.x + sq.size) <= 40,
+        );
+      };
+      // A wrapped label's continuation line above this item (same
+      // window as wrappedPrefix) — such an item is part of the label
+      // above it, not a box label of its own.
+      const hasLineAbove = (labelItem: LineItem): boolean =>
+        items.some(
+          (it) =>
+            it.y > labelItem.y + 10 &&
+            it.y < labelItem.y + 14 &&
+            Math.abs(it.x - labelItem.x) < 25 &&
+            it.str.trim().length > 0 &&
+            !it.str.trim().endsWith(":") &&
+            !isHeading(it.str),
+        );
+
+      type CandLabel = { item: LineItem; label: string; colonIndex: number };
+      const candLabels: CandLabel[] = pageColonLabels.map((c, i) => ({
+        item: c.item,
+        label: c.label,
+        colonIndex: i,
+      }));
+      for (const item of items) {
+        const text = item.str.trim();
+        if (text.length < 3 || text.includes(":")) continue;
+        if (isHeading(item.str)) continue;
+        if (isFragmentLabel(cleanLabel(text))) continue;
+        if (hasLineAbove(item)) continue;
+        if (candLabels.some((c) => c.item === item)) continue;
+        candLabels.push({
+          item,
+          label: cleanLabel(text),
+          colonIndex: -1,
+        });
+      }
+
+      const unusedRects = [...vectorRects].sort(
+        (a, b) => (a.x2 - a.x1) * (a.y2 - a.y1) - (b.x2 - b.x1) * (b.y2 - b.y1),
+      );
+      for (const rect of unusedRects) {
+        const associated = candLabels
+          .filter(
+            (c) =>
+              (c.colonIndex < 0 || !claimed.has(c.colonIndex)) &&
+              !isOptionLabel(c.item) &&
+              c.item.x >= rect.x1 - 15 &&
+              c.item.x <= rect.x1 + 150 &&
+              c.item.y >= rect.y1 &&
+              c.item.y <= rect.y2 + 12,
+          )
+          .sort((a, b) => a.item.y - b.item.y); // lowest label first
+        for (const cand of associated) {
+          const labelItem = cand.item;
+          // Lowest wrapped line of this label (a 2-line label's
+          // second line sits ~13pt below the first).
+          let labelBottomY = labelItem.y;
+          for (const it of items) {
+            if (
+              it.y < labelItem.y - 10 &&
+              it.y > labelItem.y - 15 &&
+              Math.abs(it.x - labelItem.x) < 25 &&
+              it.str.trim().length > 0 &&
+              !it.str.trim().endsWith(":")
+            ) {
+              labelBottomY = Math.min(labelBottomY, it.y);
+            }
+          }
+          const top = Math.min(labelBottomY - 4, rect.y2 - 2);
+          // Next label below inside this box caps the textarea.
+          let bottom = rect.y1 + 4;
+          for (const it of items) {
+            if (
+              it.str.trim().length > 0 &&
+              !isHeading(it.str) &&
+              it.x >= rect.x1 - 5 &&
+              it.x <= rect.x2 + 5 &&
+              it.y < labelItem.y - 6 &&
+              it.y >= rect.y1
+            ) {
+              bottom = Math.max(bottom, it.y + 8);
+            }
+          }
+          const height = top - bottom;
+          if (height < 14) continue;
+          const suffix =
+            cand.colonIndex < 0 ? wrappedSuffix(labelItem) : "";
+          const fullLabel =
+            cand.colonIndex >= 0
+              ? (() => {
+                  const prefix = wrappedPrefix(labelItem);
+                  return prefix ? `${prefix} ${cand.label}` : cand.label;
+                })()
+              : suffix
+                ? `${cand.label} ${suffix}`
+                : cand.label;
+          found.push({
+            id: `p${pageNumber}-t${found.length}`,
+            page: pageNumber,
+            x: round(rect.x1 + 4),
+            // y is the TOP of the textarea (sorting + overlay +
+            // print all read it that way for textareas).
+            y: round(top),
+            width: round(rect.x2 - rect.x1 - 8),
+            height: round(height),
+            label: fullLabel,
+            type: "textarea",
+            order: 0,
+            included: true,
+            required: false,
+            group: group(rect.x1 + 4, top),
+          });
+          if (cand.colonIndex >= 0) claimed.add(cand.colonIndex);
+          // The box's edges are not blanks — keep pass 2 from
+          // claiming them as below-label lines.
+          for (let n = unusedLines.length - 1; n >= 0; n--) {
+            const l = unusedLines[n];
+            const isEdge =
+              (Math.abs(l.y1 - rect.y2) < 1 ||
+                Math.abs(l.y1 - rect.y1) < 1) &&
+              l.x1 >= rect.x1 - 3 &&
+              l.x2 <= rect.x2 + 3;
+            if (isEdge) unusedLines.splice(n, 1);
+          }
+          break;
+        }
+      }
     }
 
     // Pass 3 — fallback for forms with no drawn lines: the old

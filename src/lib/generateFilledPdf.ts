@@ -44,6 +44,68 @@ export async function generateFilledPdf(
       continue
     }
 
+    // Textarea: word-wrap the answer inside the box, starting at the
+    // top. Detection stores the box's TOP edge in field.y.
+    if (field.type === 'textarea') {
+      const wrap = (size: number): string[] => {
+        const maxW = field.width - 8
+        const lines: string[] = []
+        for (const paragraph of text.split('\n')) {
+          let line = ''
+          for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+            const test = line ? `${line} ${word}` : word
+            if (font.widthOfTextAtSize(test, size) <= maxW) {
+              line = test
+            } else {
+              if (line) lines.push(line)
+              // A single word wider than the box: hard-split it.
+              let w = word
+              while (
+                font.widthOfTextAtSize(w, size) > maxW &&
+                w.length > 1
+              ) {
+                let cut = w.length - 1
+                while (
+                  cut > 0 &&
+                  font.widthOfTextAtSize(w.slice(0, cut), size) > maxW
+                ) {
+                  cut--
+                }
+                lines.push(w.slice(0, cut))
+                w = w.slice(cut)
+              }
+              line = w
+            }
+          }
+          lines.push(line)
+        }
+        return lines
+      }
+      // Shrink the font so the wrapped text fits the box height.
+      let size = BASE_FONT_SIZE
+      let lines = wrap(size)
+      while (
+        size > MIN_FONT_SIZE &&
+        lines.length * size * 1.25 > field.height - 8
+      ) {
+        size -= 0.5
+        lines = wrap(size)
+      }
+      let y = field.y - size - 2
+      for (const line of lines) {
+        if (y < field.y - field.height + 4) break
+        page.drawText(line, {
+          x: field.x + 4,
+          y,
+          size,
+          font,
+          color: rgb(0, 0, 0),
+        })
+        y -= size * 1.25
+      }
+      continue
+    }
+
     // Shrink the font so a long answer fits the blank instead of
     // running over the next label.
     let size = BASE_FONT_SIZE
