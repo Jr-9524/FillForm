@@ -43,10 +43,26 @@ export function FillForm({
   const [previewPage, setPreviewPage] = useState(1)
   // Live-preview zoom (1 = fit the column).
   const [previewZoom, setPreviewZoom] = useState(1)
+  // The list shows only the previewed page by default, so the form
+  // follows the preview instead of one long 136-field scroll. "All
+  // pages" shows everything, in document order.
+  const [showAllPages, setShowAllPages] = useState(false)
+  const visibleFields = showAllPages
+    ? fields
+    : fields.filter((field) => field.page === previewPage)
+  const pageFieldCount = fields.filter(
+    (field) => field.page === previewPage,
+  ).length
   const filledCount = fields.filter(
     (field) => (answers[field.id] ?? '').trim() !== '',
   ).length
   const emptyCount = fields.length - filledCount
+  // Missing fields that are not on the previewed page (and so not
+  // visible in the filtered list) — the sticky bar says so.
+  const missingOffPage = missingIds.filter((id) => {
+    const field = fields.find((f) => f.id === id)
+    return field && field.page !== previewPage
+  }).length
   // Whether any field is marked Required in Setup: when none is,
   // "Check answers" counts every included field instead, so the
   // check is never vacuous (see App.handleCheckAnswers).
@@ -65,7 +81,7 @@ export function FillForm({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:items-start">
       {pdf && (
         <div className="order-2 space-y-4 lg:order-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -110,7 +126,7 @@ export function FillForm({
             zoom={previewZoom}
             onZoomChange={setPreviewZoom}
           />
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-600">
             Live preview — your answers appear on the page as you type,
             exactly where the download puts them.
           </p>
@@ -136,8 +152,35 @@ export function FillForm({
         )}
       </p>
 
+      <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Which fields to show">
+        <button
+          type="button"
+          onClick={() => setShowAllPages(false)}
+          aria-pressed={!showAllPages}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+            !showAllPages
+              ? "bg-blue-700 text-white"
+              : "border border-gray-300 bg-white hover:bg-gray-100"
+          }`}
+        >
+          Page {previewPage} ({pageFieldCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowAllPages(true)}
+          aria-pressed={showAllPages}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+            showAllPages
+              ? "bg-blue-700 text-white"
+              : "border border-gray-300 bg-white hover:bg-gray-100"
+          }`}
+        >
+          All pages ({fields.length})
+        </button>
+      </div>
+
       <div className="mt-5 space-y-5">
-        {fields.map((field) => {
+        {visibleFields.map((field) => {
           const isMissing = missingIds.includes(field.id)
           const value = answers[field.id] ?? ''
           const inputId = `fill-${field.id}`
@@ -153,9 +196,11 @@ export function FillForm({
                 {field.required && (
                   <span className="text-red-600"> *</span>
                 )}
-                <span className="ml-2 font-normal text-gray-500">
-                  Page {field.page}
-                </span>
+                {showAllPages && (
+                  <span className="ml-2 font-normal text-gray-500">
+                    Page {field.page}
+                  </span>
+                )}
               </label>
               {field.type === 'checkbox' ? (
                 <input
@@ -209,6 +254,9 @@ export function FillForm({
         {missingIds.length > 0 && (
           <p role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {missingIds.length} {missingIds.length === 1 ? 'field' : 'fields'} still empty — {hasRequired ? 'the required ones are marked below.' : 'fill them in below.'}
+            {!showAllPages && missingOffPage > 0 && (
+              <> {missingOffPage} {missingOffPage === 1 ? 'is' : 'are'} on other pages — switch to “All pages” to see {missingOffPage === 1 ? 'it' : 'them'}.</>
+            )}
           </p>
         )}
 
@@ -255,7 +303,7 @@ export function FillForm({
             Clear answers
           </button>
         </div>
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-600">
           {canGenerate
             ? 'Download gives you the original PDF with your answers on the blanks. Print opens it in a new tab — print from there (Ctrl+P).'
             : 'Fill the form and click “Check answers” first — download and print unlock once the fields that count are filled.'}

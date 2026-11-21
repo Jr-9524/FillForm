@@ -231,6 +231,27 @@ fields), all text boxes render at least 16pt with their bottom
 exactly on the line, and a Times Bold 14 + Courier 10 filled PDF
 embeds Times-Bold and Courier with the answers in place.
 
+## Fill view + overall fixes (2026-11-21)
+
+**Page filter.** The Fill list no longer shows all 136 fields at
+once: it shows only the previewed page by default ("Page 1 (40)"),
+following the preview as you page through, with an "All pages
+(136)" toggle for the full list. The redundant "Page N" after each
+label is hidden in the single-page view. When Check answers finds
+missing fields on other pages, the sticky bar says so and points
+to All pages.
+
+**Bigger preview.** The Fill preview column is wider than the form
+column now (1.25fr vs 1fr), so the page text is more legible —
+with the zoom toolbar from the big-3 round on top of that.
+
+**Contrast and Clear.** The lightest helper text ("pt from
+bottom-left", the Tip, the preview caption, the button note, the
+header subtitle) is a shade darker. "Clear" is now "Clear PDF"
+with a tooltip, and it removes the file's saved answers from the
+browser too — before, Clear left them stored, so re-uploading the
+same PDF brought the old answers back.
+
 ## Setup panel fixes (2026-11-21)
 
 **Undo.** Every field change (drag, resize, label/type/font edit,

@@ -307,6 +307,17 @@ function App() {
     detectionRunRef.current++;
     await loadingTaskRef.current?.destroy();
     loadingTaskRef.current = null;
+    // Remove the saved answers for this file too, so Clear truly
+    // starts fresh — re-uploading the same PDF does not bring them
+    // back. (The save effect skips when fileName is null, so the
+    // stored answers would otherwise survive.)
+    if (fileName) {
+      try {
+        localStorage.removeItem(`fillform-answers:${fileName}`);
+      } catch {
+        // Storage unavailable — nothing to clear.
+      }
+    }
     setPdf(null);
     setPageCount(0);
     setPreviewPage(1);
@@ -473,7 +484,7 @@ function App() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div>
             <h1 className="text-xl font-bold">FillForm</h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-600">
               Upload a PDF softcopy and preview it page by page.
             </p>
           </div>
@@ -496,9 +507,10 @@ function App() {
               <button
                 type="button"
                 onClick={() => void clearFile()}
+                title="Remove this PDF and its saved answers"
                 className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
               >
-                Clear
+                Clear PDF
               </button>
             )}
           </div>
@@ -963,7 +975,7 @@ function App() {
                                   />
                                 </label>
                               ))}
-                              <span className="text-gray-400">
+                              <span className="text-gray-500">
                                 pt from bottom-left
                               </span>
                             </div>
@@ -1019,7 +1031,7 @@ function App() {
                           one.
                         </p>
                       )}
-                      <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
+                      <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600">
                         Tip: click a field to highlight it on the page. Drag
                         the highlighted box to move it, drag its corners to
                         resize it, or open Position to type the exact X / Y
