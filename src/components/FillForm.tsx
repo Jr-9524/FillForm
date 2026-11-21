@@ -5,9 +5,13 @@ type FillFormProps = {
   answers: Record<string, string>
   missingIds: string[]
   submitted: boolean
+  generating: boolean
+  canGenerate: boolean
   onAnswerChange: (id: string, value: string) => void
   onSubmit: () => void
   onClearAnswers: () => void
+  onDownload: () => void
+  onPrint: () => void
 }
 
 /**
@@ -20,9 +24,13 @@ export function FillForm({
   answers,
   missingIds,
   submitted,
+  generating,
+  canGenerate,
   onAnswerChange,
   onSubmit,
   onClearAnswers,
+  onDownload,
+  onPrint,
 }: FillFormProps) {
   const filledCount = fields.filter(
     (field) => (answers[field.id] ?? '').trim() !== '',
@@ -60,8 +68,8 @@ export function FillForm({
 
       {submitted && missingIds.length === 0 && (
         <p role="status" className="mt-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          All required fields are filled. You can keep editing, or come back
-          later — your answers are saved in this browser.
+          All required fields are filled. You can download or print the
+          filled PDF now.
         </p>
       )}
 
@@ -122,6 +130,22 @@ export function FillForm({
         </button>
         <button
           type="button"
+          onClick={onDownload}
+          disabled={!canGenerate || generating}
+          className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-40"
+        >
+          {generating ? 'Generating…' : 'Download filled PDF'}
+        </button>
+        <button
+          type="button"
+          onClick={onPrint}
+          disabled={!canGenerate || generating}
+          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+        >
+          Print filled PDF
+        </button>
+        <button
+          type="button"
           onClick={onClearAnswers}
           className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
         >
@@ -129,8 +153,9 @@ export function FillForm({
         </button>
       </div>
       <p className="mt-3 text-xs text-gray-500">
-        Answers are saved in this browser only. No PDF is generated yet —
-        that is Slice 5.
+        {canGenerate
+          ? 'Download gives you the original PDF with your answers on the blanks. Print opens it in a new tab — print from there (Ctrl+P).'
+          : 'Fill the form and click “Check answers” first — download and print unlock once all required fields are filled.'}
       </p>
     </form>
   )

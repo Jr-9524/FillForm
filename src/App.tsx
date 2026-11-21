@@ -4,6 +4,7 @@ import { PdfPage } from "./components/PdfPage";
 import { FillForm } from "./components/FillForm";
 import pdfjsLib from "./lib/pdfjs";
 import { detectFields } from "./lib/detectFields";
+import { generateFilledPdf } from "./lib/generateFilledPdf";
 import {
   createManualField,
   renumberFields,
@@ -14,10 +15,12 @@ import type { DetectedField, FieldType } from "./lib/fields";
 type View = "setup" | "fill";
 
 /**
- * FillForm — Slice 1: scaffold + PDF upload + preview + blank detection.
+ * FillForm — Slice 5: scaffold + PDF upload + preview + blank detection
+ * + field editor + fill form + filled-PDF download / print (pdf-lib
+ * overlay at the stored blank positions).
  *
- * No field editor, no form builder, no sharing, no PDF overlay yet.
- * Those are later slices (see BUILD_PLAN.md).
+ * No sharing yet (Slice 4, skipped for now).
+ * See BUILD_PLAN.md.
  */
 function App() {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -31,6 +34,8 @@ function App() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [missingIds, setMissingIds] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const [originalBytes, setOriginalBytes] = useState<ArrayBuffer | null>(null);
+  const [generating, setGenerating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // pdf.js v6 destroys a document through its loading task, not the proxy.
   const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
@@ -89,9 +94,12 @@ function App() {
     setAnswers(loadSavedAnswers(file.name));
     setMissingIds([]);
     setSubmitted(false);
+    setOriginalBytes(null);
 
     try {
       const data = await file.arrayBuffer();
+      // Keep a copy for Slice 5: pdf.js may detach the buffer it reads.
+      setOriginalBytes(data.slice(0));
       const loadingTask = pdfjsLib.getDocument({ data });
       loadingTaskRef.current = loadingTask;
       const doc = await loadingTask.promise;
@@ -137,6 +145,8 @@ function App() {
     setAnswers({});
     setMissingIds([]);
     setSubmitted(false);
+    setOriginalBytes(null);
+    setGenerating(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -197,6 +207,55 @@ function App() {
     setAnswers({});
     setMissingIds([]);
     setSubmitted(false);
+  }
+
+  // Slice 5: generate the filled PDF (original + answers on the blanks).
+  async function makeFilledPdfBlob(): Promise<Blob | null> {
+    if (!originalBytes) return null;
+    setGenerating(true);
+    setError(null);
+    try {
+      const bytes = await generateFilledPdf(
+        originalBytes,
+        includedFields,
+        answers,
+      );
+      // pdf-lib returns a Uint8Array; copy it into a fresh Blob part
+      // so the bytes are not tied to a larger buffer.
+      const copy = new Uint8Array(bytes.length);
+      copy.set(bytes);
+      return new Blob([copy], { type: "application/pdf" });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Could not generate the filled PDF: ${err.message}`
+          : "Could not generate the filled PDF.",
+      );
+      return null;
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleDownloadFilledPdf() {
+    const blob = await makeFilledPdfBlob();
+    if (!blob || !fileName) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName.replace(/\.pdf$/i, "") + "-filled.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handlePrintFilledPdf() {
+    const blob = await makeFilledPdfBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    // Open the filled PDF in a new tab — print it from there (Ctrl+P).
+    window.open(url, "_blank");
   }
 
   const includedCount = includedFields.length;
@@ -303,9 +362,13 @@ function App() {
                 answers={answers}
                 missingIds={missingIds}
                 submitted={submitted}
+                generating={generating}
+                canGenerate={submitted && missingIds.length === 0}
                 onAnswerChange={handleAnswerChange}
                 onSubmit={handleCheckAnswers}
                 onClearAnswers={handleClearAnswers}
+                onDownload={handleDownloadFilledPdf}
+                onPrint={handlePrintFilledPdf}
               />
             ) : (
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">

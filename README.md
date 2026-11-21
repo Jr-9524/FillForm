@@ -45,6 +45,18 @@ Full plan: `../softcopy-form-filler/BUILD_PLAN.md`
   wipes them.
 - Nothing else yet — no sharing, no PDF overlay / download.
 
+## Slice 5 — what works now (sharing skipped for now)
+
+- After "Check answers" passes (all required fields filled), two new
+  buttons unlock in the Fill form view: "Download filled PDF" and
+  "Print filled PDF".
+- Download saves `<name>-filled.pdf`: the ORIGINAL PDF with answers
+  drawn on top at the stored blank positions (pdf-lib, Helvetica 12pt,
+  shrinking to 7pt if a long answer would run over the next label).
+  Layout, fonts and logos are untouched.
+- Print opens the filled PDF in a new tab — print from there (Ctrl+P).
+- Sharing (Slice 4) is skipped for now, by the user's call.
+
 ## Run it
 
 ```bash
