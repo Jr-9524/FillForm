@@ -507,6 +507,7 @@ export function PdfPage({
                   <div
                     role="button"
                     tabIndex={0}
+                    data-field-id={field.id}
                     aria-label={`Field ${field.order}: ${field.label}`}
                     title={`${field.order}. ${field.label}${onFieldUpdate ? " — drag to move, corners to resize, arrow keys nudge 1pt (Shift: 10pt)" : ""}`}
                     onClick={(e) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import { PdfPage, ZOOM_LEVELS } from "./components/PdfPage";
 import { PageThumbnail } from "./components/PageThumbnail";
+import { FieldPanel } from "./components/FieldPanel";
 import { FillForm } from "./components/FillForm";
 import pdfjsLib from "./lib/pdfjs";
 import { detectFields } from "./lib/detectFields";
@@ -11,12 +12,7 @@ import {
   renumberFields,
   sortAndOrderFields,
 } from "./lib/fields";
-import type { DetectedField, FieldType } from "./lib/fields";
-import {
-  FONT_FAMILIES,
-  getFieldFont,
-  type FontFamilyId,
-} from "./lib/fonts";
+import type { DetectedField } from "./lib/fields";
 
 type View = "setup" | "fill";
 
@@ -415,11 +411,19 @@ function App() {
 
   // Highlight: click a field in the list and its box lights up on the page.
   // The preview shows one page at a time, so selecting a field on
-  // another page flips the preview to that page.
+  // another page flips the preview to that page. Then scroll the
+  // preview so the box is visible (it can be off-screen when zoomed).
   function handleFieldSelect(id: string) {
     setSelectedFieldId(id);
     const field = fields.find((f) => f.id === id);
     if (field) setPreviewPage(field.page);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-field-id="${id}"]`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    });
   }
 
   // Slice 5: generate the filled PDF (original + answers on the blanks).
@@ -471,15 +475,8 @@ function App() {
     window.open(url, "_blank");
   }
 
-  // The field list only shows the page being previewed, in document
-  // order (field number). The section heading ("STUDENT
-  // INFORMATION", ...) is shown as a small tag on each card, so
-  // duplicate labels ("Other", "Address") can be told apart — and so
-  // the list does not jump between sections the way grouping did.
-  const pageFields = fields.filter((field) => field.page === previewPage);
-  const pageIncludedCount = pageFields.filter(
-    (field) => field.included,
-  ).length;
+  // The field panel (FieldPanel) shows only the previewed page's
+  // fields, in document order.
 
   // Stepper: Upload → Set up fields → Fill → Review & download.
   // Review is current once Check answers passes; a changed answer
@@ -930,326 +927,19 @@ function App() {
                   </div>
                 </div>
 
-                <aside
-                  className="flex flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm lg:sticky lg:top-6"
-                  style={
-                    fieldsCollapsed || !previewHeight
-                      ? undefined
-                      : { height: previewHeight }
-                  }
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-base font-semibold">
-                      Detected fields
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={() => setFieldsCollapsed((v) => !v)}
-                      aria-expanded={!fieldsCollapsed}
-                      className="shrink-0 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100"
-                    >
-                      {fieldsCollapsed ? "▸ Show" : "▾ Hide"}
-                    </button>
-                  </div>
-                  {!fieldsCollapsed && (
-                    <>
-                      {detecting ? (
-                        <p className="mt-2 text-sm text-gray-500">
-                          Detecting blanks…
-                        </p>
-                      ) : pageFields.length > 0 ? (
-                        <>
-                          <p className="mt-1 text-sm text-gray-600">
-                            {pageIncludedCount}{" "}
-                            {pageIncludedCount === 1 ? "field" : "fields"} on
-                            page {previewPage}
-                            {" · "}
-                            {fields.length} total
-                          </p>
-                          <p className="mt-1 text-xs text-gray-500">
-                            Include = the field appears in the Fill form.
-                            Required = the filler must answer it before
-                            downloading.
-                          </p>
-                          <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
-                            <ol className="mt-2 space-y-3">
-                              {[...pageFields]
-                                .sort((a, b) => a.order - b.order)
-                                .map((field) => (
-                              <li
-                                key={field.id}
-                                onClick={() => handleFieldSelect(field.id)}
-                                className={`cursor-pointer rounded-md border px-3 py-2 ${field.included ? "" : "opacity-50"} ${
-                                  selectedFieldId === field.id
-                                    ? "border-blue-600 bg-blue-50"
-                                    : "border-gray-200"
-                                }`}
-                              >
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-gray-500">
-                                {field.order}.
-                              </span>
-                              <input
-                                type="text"
-                                value={field.label}
-                                aria-label={`Field ${field.order} label`}
-                                onChange={(e) =>
-                                  updateField(field.id, {
-                                    label: e.target.value,
-                                  })
-                                }
-                                className={`min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm font-medium ${field.included ? "" : "line-through"}`}
-                              />
-                              {field.group && (
-                                <span
-                                  title={`Section: ${field.group}`}
-                                  className="max-w-28 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500"
-                                >
-                                  {field.group}
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <select
-                                value={field.type}
-                                aria-label={`Field ${field.order} type`}
-                                onChange={(e) =>
-                                  updateField(field.id, {
-                                    type: e.target.value as FieldType,
-                                  })
-                                }
-                                className="rounded border border-gray-300 px-2 py-1 text-sm"
-                              >
-                                <option value="text">Text</option>
-                                <option value="textarea">Long text</option>
-                                <option value="date">Date</option>
-                                <option value="number">Number</option>
-                                <option value="checkbox">Checkbox</option>
-                              </select>
-                              <label
-                                title="The filler must answer this field before downloading"
-                                className="flex items-center gap-1 text-sm text-gray-700"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={field.required}
-                                  onChange={(e) =>
-                                    updateField(field.id, {
-                                      required: e.target.checked,
-                                    })
-                                  }
-                                />
-                                Required
-                              </label>
-                              <label
-                                title="The field appears in the Fill form — uncheck to hide it from fillers"
-                                className="flex items-center gap-1 text-sm text-gray-700"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={field.included}
-                                  onChange={(e) =>
-                                    updateField(field.id, {
-                                      included: e.target.checked,
-                                    })
-                                  }
-                                />
-                                Include in form
-                              </label>
-                            </div>
-                            {field.type !== "checkbox" && (
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-medium text-gray-500">
-                                  Font
-                                </span>
-                                <select
-                                  value={getFieldFont(field).family}
-                                  aria-label={`Field ${field.order} font family`}
-                                  onChange={(e) =>
-                                    updateField(field.id, {
-                                      fontFamily:
-                                        e.target.value as FontFamilyId,
-                                    })
-                                  }
-                                  className="rounded border border-gray-300 px-2 py-1 text-sm"
-                                >
-                                  {FONT_FAMILIES.map((f) => (
-                                    <option key={f.id} value={f.id}>
-                                      {f.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <label className="flex items-center gap-1 text-sm text-gray-700">
-                                  <input
-                                    type="number"
-                                    min="7"
-                                    max="24"
-                                    step="0.5"
-                                    value={getFieldFont(field).size}
-                                    aria-label={`Field ${field.order} font size`}
-                                    onChange={(e) => {
-                                      const parsed = parseFloat(
-                                        e.target.value,
-                                      );
-                                      if (
-                                        Number.isFinite(parsed) &&
-                                        parsed >= 7 &&
-                                        parsed <= 24
-                                      ) {
-                                        // A bigger font needs a
-                                        // taller box (font size +
-                                        // padding is the minimum).
-                                        updateField(field.id, {
-                                          fontSize: parsed,
-                                          height: Math.max(
-                                            field.height,
-                                            parsed + 4,
-                                          ),
-                                        });
-                                      }
-                                    }}
-                                    className="w-16 rounded border border-gray-300 px-1 py-1 text-sm"
-                                  />
-                                  pt
-                                </label>
-                                <label
-                                  title="Bold"
-                                  className="flex items-center gap-1 text-sm text-gray-700"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={getFieldFont(field).bold}
-                                    aria-label={`Field ${field.order} bold`}
-                                    onChange={(e) =>
-                                      updateField(field.id, {
-                                        bold: e.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span className="font-bold">B</span>
-                                </label>
-                                <label
-                                  title="Italic"
-                                  className="flex items-center gap-1 text-sm text-gray-700"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={getFieldFont(field).italic}
-                                    aria-label={`Field ${field.order} italic`}
-                                    onChange={(e) =>
-                                      updateField(field.id, {
-                                        italic: e.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span className="italic">I</span>
-                                </label>
-                              </div>
-                            )}
-                            <details className="mt-2">
-                              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
-                                Position (X / Y / W / H)
-                              </summary>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                              {(
-                                [
-                                  ["X", field.x],
-                                  ["Y", field.y],
-                                  ["W", field.width],
-                                  ["H", field.height],
-                                ] as const
-                              ).map(([key, value]) => (
-                                <label
-                                  key={key}
-                                  className="flex items-center gap-1"
-                                >
-                                  {key}
-                                  <input
-                                    type="number"
-                                    step="1"
-                                    value={Math.round(value * 10) / 10}
-                                    aria-label={`Field ${field.order} ${key}`}
-                                    onChange={(e) => {
-                                      const parsed = parseFloat(
-                                        e.target.value,
-                                      );
-                                      if (Number.isFinite(parsed)) {
-                                        updateField(field.id, {
-                                          [key.toLowerCase()]:
-                                            parsed,
-                                        } as Partial<DetectedField>);
-                                      }
-                                    }}
-                                    className="w-16 rounded border border-gray-300 px-1 py-0.5 text-xs"
-                                  />
-                                </label>
-                              ))}
-                              <span className="text-gray-500">
-                                pt from bottom-left
-                              </span>
-                            </div>
-                            </details>
-                            <div className="mt-2 flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  moveField(field.id, -1);
-                                }}
-                                disabled={fields.indexOf(field) === 0}
-                                aria-label={`Move field ${field.order} up`}
-                                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
-                              >
-                                ↑ Up
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  moveField(field.id, 1);
-                                }}
-                                disabled={
-                                  fields.indexOf(field) === fields.length - 1
-                                }
-                                aria-label={`Move field ${field.order} down`}
-                                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
-                              >
-                                ↓ Down
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteField(field.id);
-                                }}
-                                aria-label={`Delete field ${field.order}`}
-                                className="ml-auto rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                              </li>
-                                ))}
-                            </ol>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="mt-2 text-sm text-gray-500">
-                          No fields on this page — turn on “+ Add field”
-                          and click on the page to add
-                          one.
-                        </p>
-                      )}
-                      <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600">
-                        Tip: click a field to highlight it on the page. Drag
-                        the highlighted box to move it, drag its corners to
-                        resize it, or open Position to type the exact X / Y
-                        / W / H. Turn on “+ Add field” to add a field by
-                        clicking the page. Ctrl+Z undoes a field change.
-                      </p>
-                    </>
-                  )}
-                </aside>
+                <FieldPanel
+                  pdf={pdf}
+                  previewPage={previewPage}
+                  fields={fields}
+                  selectedFieldId={selectedFieldId}
+                  onFieldSelect={handleFieldSelect}
+                  onFieldUpdate={updateField}
+                  onMoveField={moveField}
+                  onDeleteField={deleteField}
+                  collapsed={fieldsCollapsed}
+                  onToggleCollapsed={() => setFieldsCollapsed((v) => !v)}
+                  previewHeight={previewHeight}
+                />
               </div>
             )}
           </>
