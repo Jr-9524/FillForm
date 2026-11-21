@@ -41,6 +41,9 @@ function App() {
   // looking at the whole document at once.
   const [previewPage, setPreviewPage] = useState(1);
   const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
+  // Add-field mode: only when this is on does clicking the page add
+  // a field — plain clicks no longer pop the label prompt by accident.
+  const [addMode, setAddMode] = useState(false);
   const previewWrapRef = useRef<HTMLDivElement>(null);
   const [previewHeight, setPreviewHeight] = useState<number | null>(null);
 
@@ -110,6 +113,7 @@ function App() {
     setPageCount(0);
     setPreviewPage(1);
     setFields([]);
+    setAddMode(false);
     setView("setup");
     setAnswers(loadSavedAnswers(file.name));
     setMissingIds([]);
@@ -206,6 +210,7 @@ function App() {
     setPreviewPage(1);
     setFileName(null);
     setFields([]);
+    setAddMode(false);
     setDetecting(false);
     setError(null);
     setView("setup");
@@ -222,12 +227,10 @@ function App() {
     const label = window.prompt("Field label:", "Field");
     if (label === null) return;
     const trimmed = label.trim() || "Field";
-    setFields((prev) =>
-      sortAndOrderFields([
-        ...prev,
-        createManualField(pageNumber, x, y, trimmed),
-      ]),
-    );
+    const field = createManualField(pageNumber, x, y, trimmed);
+    setFields((prev) => sortAndOrderFields([...prev, field]));
+    // Select the new field so it can be dragged and resized at once.
+    setSelectedFieldId(field.id);
   }
 
   // Slice 2: field editor helpers.
@@ -525,14 +528,34 @@ function App() {
                     >
                       {detecting ? "Detecting…" : "Re-detect fields"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddMode((v) => !v)}
+                      aria-pressed={addMode}
+                      title="Turn on to add a field by clicking the page — plain clicks do nothing while it is off"
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                        addMode
+                          ? "bg-blue-700 text-white hover:bg-blue-800"
+                          : "border border-gray-300 bg-white hover:bg-gray-100"
+                      }`}
+                    >
+                      {addMode ? "✓ Adding… click page" : "+ Add field"}
+                    </button>
                   </div>
+                  {addMode && (
+                    <p className="text-sm text-blue-700">
+                      Click the page where the new field goes — it will be
+                      selected right away so you can drag and resize it.
+                      Click “+ Add field” again to stop.
+                    </p>
+                  )}
                   <div ref={previewWrapRef}>
                     <PdfPage
                       key={previewPage}
                       pdf={pdf}
                       pageNumber={previewPage}
                       pageCount={pageCount}
-                      onPageClick={handlePageClick}
+                      onPageClick={addMode ? handlePageClick : undefined}
                       fields={fields}
                       selectedFieldId={selectedFieldId}
                       onFieldSelect={handleFieldSelect}
@@ -741,7 +764,8 @@ function App() {
                         </>
                       ) : (
                         <p className="mt-2 text-sm text-gray-500">
-                          No fields on this page — click on the page to add
+                          No fields on this page — turn on “+ Add field”
+                          and click on the page to add
                           one.
                         </p>
                       )}

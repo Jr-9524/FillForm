@@ -177,6 +177,17 @@ the pager: it runs detection again on the loaded PDF with the
 current code and replaces the fields (manual box tweaks are reset;
 answers for fields that are still found are kept).
 
+## Placeholder preview + Add field mode (2026-11-21)
+
+Every Setup box shows a gray placeholder of what a filled answer
+looks like, matched to the field's type: lorem ipsum for text
+fields (long enough to run to the box's right edge), wrapped lorem
+ipsum for textareas, a ✓ for checkboxes, a date (01/15/2026) for
+dates, and 123 for numbers. Clicking the page no longer adds a
+field by accident: Setup has a "+ Add field" button — only while
+it is on does a page click add a field (the new field is selected
+right away so it can be dragged and resized at once).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

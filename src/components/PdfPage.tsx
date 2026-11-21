@@ -30,6 +30,13 @@ type PdfPageProps = {
 
 const RENDER_SCALE = 1.5;
 
+// Placeholder shown inside Setup boxes so the creator can see what
+// a filled box looks like. The single line is long on purpose —
+// overflow cuts it at the box's right edge, so it runs "all the way".
+const LOREM_LINE =
+  "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+const LOREM_BLOCK = `${LOREM_LINE} ${LOREM_LINE} ${LOREM_LINE} ${LOREM_LINE}`;
+
 /** A highlight box in PDF points, measured from the page's top edge. */
 type DisplayBox = { left: number; top: number; width: number; height: number };
 
@@ -54,6 +61,11 @@ export function PdfPage({
   // Displayed width of the page (CSS px) — the answer text is sized
   // from it, so it stays in scale with the canvas at any width.
   const [displayWidth, setDisplayWidth] = useState(0);
+  // CSS px per PDF point at the current display size.
+  const scale =
+    displayWidth > 0 && pageSize.width > 0
+      ? displayWidth / pageSize.width
+      : 0;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -332,6 +344,22 @@ export function PdfPage({
               const top = (box.top / pageSize.height) * 100;
               const width = (box.width / pageSize.width) * 100;
               const height = (box.height / pageSize.height) * 100;
+              // Placeholder preview inside the box, matching the
+              // field's type: a check mark for checkboxes, a date
+              // for dates, a number for numbers, lorem ipsum for
+              // text, wrapped lorem ipsum for textareas.
+              const placeholder =
+                field.type === "checkbox"
+                  ? "✓"
+                  : field.type === "date"
+                    ? "01/15/2026"
+                    : field.type === "number"
+                      ? "123"
+                      : field.type === "textarea"
+                        ? LOREM_BLOCK
+                        : LOREM_LINE;
+              const placeholderSize =
+                field.type === "checkbox" ? 10 : 12;
               return (
                 <div key={field.id}>
                   <div
@@ -364,7 +392,35 @@ export function PdfPage({
                       width: `${Math.max(width, 1)}%`,
                       height: `${height}%`,
                     }}
-                  />
+                  >
+                    {scale > 0 && (
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 overflow-hidden text-gray-500"
+                        style={{
+                          fontSize: `${placeholderSize * scale}px`,
+                          lineHeight:
+                            field.type === "textarea" ? 1.25 : 1,
+                          fontFamily: "Helvetica, Arial, sans-serif",
+                          whiteSpace:
+                            field.type === "textarea" ? "normal" : "nowrap",
+                          display: "flex",
+                          alignItems:
+                            field.type === "checkbox"
+                              ? "center"
+                              : "flex-start",
+                          justifyContent:
+                            field.type === "checkbox"
+                              ? "center"
+                              : "flex-start",
+                          fontWeight:
+                            field.type === "checkbox" ? 700 : 400,
+                        }}
+                      >
+                        {placeholder}
+                      </span>
+                    )}
+                  </div>
                   {isSelected &&
                     onFieldUpdate &&
                     (["nw", "ne", "sw", "se"] as const).map((key) => {
@@ -398,8 +454,6 @@ export function PdfPage({
               if (!field.included) return null;
               const text = (answers[field.id] ?? "").trim();
               if (!text) return null;
-              // CSS px per PDF point at the current display size.
-              const scale = displayWidth / pageSize.width;
               const ph = pageSize.height;
               const pw = pageSize.width;
               if (field.type === "checkbox") {
