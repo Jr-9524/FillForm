@@ -29,6 +29,20 @@ export async function generateFilledPdf(
     const page = pages[field.page - 1]
     if (!page) continue
 
+    // Checkbox: a checked box gets an X inside the box.
+    if (field.type === 'checkbox') {
+      if (['true', 'checked', 'yes', 'x'].includes(text.toLowerCase())) {
+        page.drawText('X', {
+          x: field.x + 1,
+          y: field.y,
+          size: 11,
+          font,
+          color: rgb(0, 0, 0),
+        })
+      }
+      continue
+    }
+
     // Shrink the font so a long answer fits the blank instead of
     // running over the next label.
     let size = BASE_FONT_SIZE
@@ -40,7 +54,9 @@ export async function generateFilledPdf(
     }
 
     page.drawText(text, {
-      x: field.x,
+      // +4pt gap after the label, so the answer does not stick to
+      // the colon ("Student Name:awd" -> "Student Name: awd").
+      x: field.x + 4,
       // Detection y is the text baseline of the line the blank sits
       // on, so draw on that same baseline.
       y: field.y,

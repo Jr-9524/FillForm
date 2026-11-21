@@ -45,6 +45,21 @@ Full plan: `../softcopy-form-filler/BUILD_PLAN.md`
   wipes them.
 - Nothing else yet — no sharing, no PDF overlay / download.
 
+## Detection upgrade (2026-11-21, after Slice 5)
+
+- Checkboxes: `☐` / `□` in the PDF become checkbox fields. The fill
+  form shows a tick box; the filled PDF gets an X in the box.
+- Section groups: ALL-CAPS headings ("STUDENT INFORMATION",
+  "PARENT INFORMATION", ...) group the field list by page and section.
+- Column-aware blanks: a label whose next text is in another column
+  (e.g. "Sex:", "Contact Number:") now gets a blank to the end of its
+  own column instead of being dropped. Group headers ("Support Areas…",
+  "Purpose of Meeting:") and wrapped-label lines are skipped.
+- Highlight: click a field in the list and its box lights up on the
+  PDF page (and vice versa — click a box on the page to select it).
+- Overlay spacing: answers are drawn 4pt to the right of the label,
+  so they no longer stick to the colon ("Student Name: awd").
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

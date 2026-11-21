@@ -94,7 +94,17 @@ export function FillForm({
                   Page {field.page}
                 </span>
               </label>
-              {field.type === 'textarea' ? (
+              {field.type === 'checkbox' ? (
+                <input
+                  id={inputId}
+                  type="checkbox"
+                  checked={value === 'true'}
+                  onChange={(e) =>
+                    onAnswerChange(field.id, e.target.checked ? 'true' : '')
+                  }
+                  className="h-5 w-5 accent-blue-700"
+                />
+              ) : field.type === 'textarea' ? (
                 <textarea
                   id={inputId}
                   value={value}

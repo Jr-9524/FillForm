@@ -36,6 +36,7 @@ function App() {
   const [submitted, setSubmitted] = useState(false);
   const [originalBytes, setOriginalBytes] = useState<ArrayBuffer | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // pdf.js v6 destroys a document through its loading task, not the proxy.
   const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
@@ -94,6 +95,7 @@ function App() {
     setAnswers(loadSavedAnswers(file.name));
     setMissingIds([]);
     setSubmitted(false);
+    setSelectedFieldId(null);
     setOriginalBytes(null);
 
     try {
@@ -145,6 +147,7 @@ function App() {
     setAnswers({});
     setMissingIds([]);
     setSubmitted(false);
+    setSelectedFieldId(null);
     setOriginalBytes(null);
     setGenerating(false);
     if (inputRef.current) inputRef.current.value = "";
@@ -209,6 +212,17 @@ function App() {
     setSubmitted(false);
   }
 
+  // Highlight: click a field in the list and its box lights up on the page.
+  function handleFieldSelect(id: string) {
+    setSelectedFieldId(id);
+    const field = fields.find((f) => f.id === id);
+    if (field) {
+      document
+        .getElementById(`page-${field.page}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
   // Slice 5: generate the filled PDF (original + answers on the blanks).
   async function makeFilledPdfBlob(): Promise<Blob | null> {
     if (!originalBytes) return null;
@@ -260,6 +274,20 @@ function App() {
 
   const includedCount = includedFields.length;
   const excludedCount = fields.length - includedCount;
+
+  // Group the field list by page, then by section heading
+  // ("STUDENT INFORMATION", "PARENT INFORMATION", ...).
+  const groupedFields: { key: string; title: string; items: DetectedField[] }[] =
+    [];
+  for (const field of fields) {
+    const title = field.group
+      ? `Page ${field.page} — ${field.group}`
+      : `Page ${field.page}`;
+    const key = `${field.page}|${field.group}`;
+    const existing = groupedFields.find((g) => g.key === key);
+    if (existing) existing.items.push(field);
+    else groupedFields.push({ key, title, items: [field] });
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -389,6 +417,9 @@ function App() {
                           pageNumber={pageNumber}
                           pageCount={pageCount}
                           onPageClick={handlePageClick}
+                          fields={fields}
+                          selectedFieldId={selectedFieldId}
+                          onFieldSelect={handleFieldSelect}
                         />
                       ),
                     )}
@@ -413,12 +444,22 @@ function App() {
                           </>
                         )}
                       </p>
-                      <ol className="mt-3 space-y-3">
-                        {fields.map((field, index) => (
-                          <li
-                            key={field.id}
-                            className={`rounded-md border border-gray-200 px-3 py-2 ${field.included ? "" : "opacity-50"}`}
-                          >
+                      {groupedFields.map((group) => (
+                        <div key={group.key} className="mt-4">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            {group.title}
+                          </h3>
+                          <ol className="mt-2 space-y-3">
+                            {group.items.map((field) => (
+                              <li
+                                key={field.id}
+                                onClick={() => handleFieldSelect(field.id)}
+                                className={`cursor-pointer rounded-md border px-3 py-2 ${field.included ? "" : "opacity-50"} ${
+                                  selectedFieldId === field.id
+                                    ? "border-blue-600 bg-blue-50"
+                                    : "border-gray-200"
+                                }`}
+                              >
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-gray-500">
                                 {field.order}.
@@ -453,6 +494,7 @@ function App() {
                                 <option value="textarea">Long text</option>
                                 <option value="date">Date</option>
                                 <option value="number">Number</option>
+                                <option value="checkbox">Checkbox</option>
                               </select>
                               <label className="flex items-center gap-1 text-sm text-gray-700">
                                 <input
@@ -482,8 +524,11 @@ function App() {
                             <div className="mt-2 flex items-center gap-1">
                               <button
                                 type="button"
-                                onClick={() => moveField(field.id, -1)}
-                                disabled={index === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  moveField(field.id, -1);
+                                }}
+                                disabled={fields.indexOf(field) === 0}
                                 aria-label={`Move field ${field.order} up`}
                                 className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
                               >
@@ -491,8 +536,13 @@ function App() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => moveField(field.id, 1)}
-                                disabled={index === fields.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  moveField(field.id, 1);
+                                }}
+                                disabled={
+                                  fields.indexOf(field) === fields.length - 1
+                                }
                                 aria-label={`Move field ${field.order} down`}
                                 className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
                               >
@@ -500,16 +550,21 @@ function App() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => deleteField(field.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteField(field.id);
+                                }}
                                 aria-label={`Delete field ${field.order}`}
                                 className="ml-auto rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
                               >
                                 Delete
                               </button>
                             </div>
-                          </li>
-                        ))}
-                      </ol>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      ))}
                     </>
                   ) : (
                     <p className="mt-2 text-sm text-gray-500">
@@ -517,7 +572,8 @@ function App() {
                     </p>
                   )}
                   <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
-                    Tip: click on a page to add a field at that spot.
+                    Tip: click a field to highlight it on the page, or click
+                    on a page to add a field at that spot.
                   </p>
                 </aside>
               </div>

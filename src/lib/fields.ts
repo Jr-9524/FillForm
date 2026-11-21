@@ -1,4 +1,4 @@
-export type FieldType = "text" | "date" | "number" | "textarea";
+export type FieldType = "text" | "date" | "number" | "textarea" | "checkbox";
 
 /**
  * One blank in a PDF that needs input.
@@ -18,6 +18,7 @@ export type DetectedField = {
   order: number; // 1-based, document order
   included: boolean; // false = excluded from the form, but kept in the list
   required: boolean;
+  group: string; // section heading above the field, e.g. "STUDENT INFORMATION"
 };
 
 /** Sort fields in document order (page, top-to-bottom, left-to-right) and number them. */
@@ -60,5 +61,6 @@ export function createManualField(
     order: 0,
     included: true,
     required: false,
+    group: "",
   };
 }

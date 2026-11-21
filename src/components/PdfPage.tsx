@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { DetectedField } from "../lib/fields";
 
 type PdfPageProps = {
   pdf: PDFDocumentProxy;
@@ -7,6 +8,12 @@ type PdfPageProps = {
   pageCount: number;
   /** Called with the clicked position in PDF points (origin bottom-left). */
   onPageClick?: (pageNumber: number, x: number, y: number) => void;
+  /** Detected fields on this page, drawn as highlight boxes. */
+  fields?: DetectedField[];
+  /** Id of the field selected in the list — drawn with a strong highlight. */
+  selectedFieldId?: string | null;
+  /** Called when a highlight box is clicked. */
+  onFieldSelect?: (id: string) => void;
 };
 
 const RENDER_SCALE = 1.5;
@@ -17,10 +24,16 @@ export function PdfPage({
   pageNumber,
   pageCount,
   onPageClick,
+  fields = [],
+  selectedFieldId = null,
+  onFieldSelect,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pageSizeRef = useRef({ width: 0, height: 0 });
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
+
+  const pageFields = fields.filter((field) => field.page === pageNumber);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,10 +46,12 @@ export function PdfPage({
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
         const viewport = page.getViewport({ scale: RENDER_SCALE });
-        pageSizeRef.current = {
+        const size = {
           width: viewport.width / RENDER_SCALE,
           height: viewport.height / RENDER_SCALE,
         };
+        pageSizeRef.current = size;
+        setPageSize(size);
         const canvas = canvasRef.current;
         if (!canvas) return;
         canvas.width = viewport.width;
@@ -83,6 +98,7 @@ export function PdfPage({
 
   return (
     <figure
+      id={`page-${pageNumber}`}
       className={`mx-auto w-fit rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${onPageClick ? "cursor-crosshair" : ""}`}
       title={onPageClick ? "Click to add a field here" : undefined}
     >
@@ -91,7 +107,50 @@ export function PdfPage({
           Page {pageNumber} failed to render: {error}
         </p>
       ) : (
-        <canvas ref={canvasRef} className="max-w-full" onClick={handleClick} />
+        <div className="relative max-w-full">
+          <canvas
+            ref={canvasRef}
+            className="max-w-full"
+            onClick={handleClick}
+          />
+          {pageSize.width > 0 &&
+            pageFields.map((field) => {
+              const isSelected = field.id === selectedFieldId;
+              // Percentages, so the box stays aligned if the canvas
+              // is scaled down by CSS. PDF y is bottom-up, CSS is top-down.
+              const left = (field.x / pageSize.width) * 100;
+              const width = (field.width / pageSize.width) * 100;
+              const top =
+                ((pageSize.height - field.y - Math.max(field.height, 12)) /
+                  pageSize.height) *
+                100;
+              const height =
+                (Math.max(field.height, 12) / pageSize.height) * 100;
+              return (
+                <button
+                  key={field.id}
+                  type="button"
+                  aria-label={`Field ${field.order}: ${field.label}`}
+                  title={`${field.order}. ${field.label}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFieldSelect?.(field.id);
+                  }}
+                  className={`absolute rounded-sm ${
+                    isSelected
+                      ? "border-2 border-blue-600 bg-blue-500/30"
+                      : "border border-blue-400/60 bg-blue-400/10 hover:bg-blue-400/25"
+                  }`}
+                  style={{
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    width: `${Math.max(width, 1)}%`,
+                    height: `${height}%`,
+                  }}
+                />
+              );
+            })}
+        </div>
       )}
       <figcaption className="mt-2 text-center text-sm text-gray-500">
         Page {pageNumber} of {pageCount}
