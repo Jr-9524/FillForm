@@ -121,6 +121,13 @@ a giant NOTES area), so any box can now be fixed by hand in Setup:
   ":" ("The following individuals participated…") no longer become
   phantom fields. IEP is 120 fields (was 119).
 
+## One page at a time (2026-11-21)
+
+Setup used to stack every page under each other, which was confusing
+on a long document. The preview now shows one page at a time, with
+Previous / Next buttons and a page picker ("Page 3 of 9"). Clicking
+a field in the list flips the preview to that field's page.
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

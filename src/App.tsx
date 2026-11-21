@@ -37,6 +37,9 @@ function App() {
   const [originalBytes, setOriginalBytes] = useState<ArrayBuffer | null>(null);
   const [generating, setGenerating] = useState(false);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  // Setup preview shows one page at a time, so the user is never
+  // looking at the whole document at once.
+  const [previewPage, setPreviewPage] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
   // pdf.js v6 destroys a document through its loading task, not the proxy.
   const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
@@ -90,6 +93,7 @@ function App() {
     loadingTaskRef.current = null;
     setPdf(null);
     setPageCount(0);
+    setPreviewPage(1);
     setFields([]);
     setView("setup");
     setAnswers(loadSavedAnswers(file.name));
@@ -139,6 +143,7 @@ function App() {
     loadingTaskRef.current = null;
     setPdf(null);
     setPageCount(0);
+    setPreviewPage(1);
     setFileName(null);
     setFields([]);
     setDetecting(false);
@@ -213,14 +218,12 @@ function App() {
   }
 
   // Highlight: click a field in the list and its box lights up on the page.
+  // The preview shows one page at a time, so selecting a field on
+  // another page flips the preview to that page.
   function handleFieldSelect(id: string) {
     setSelectedFieldId(id);
     const field = fields.find((f) => f.id === id);
-    if (field) {
-      document
-        .getElementById(`page-${field.page}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    if (field) setPreviewPage(field.page);
   }
 
   // Slice 5: generate the filled PDF (original + answers on the blanks).
@@ -408,23 +411,60 @@ function App() {
                     {" — "}
                     {pageCount} {pageCount === 1 ? "page" : "pages"}
                   </p>
-                  <div className="space-y-6">
-                    {Array.from({ length: pageCount }, (_, i) => i + 1).map(
-                      (pageNumber) => (
-                        <PdfPage
-                          key={pageNumber}
-                          pdf={pdf}
-                          pageNumber={pageNumber}
-                          pageCount={pageCount}
-                          onPageClick={handlePageClick}
-                          fields={fields}
-                          selectedFieldId={selectedFieldId}
-                          onFieldSelect={handleFieldSelect}
-                          onFieldUpdate={updateField}
-                        />
-                      ),
-                    )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewPage((p) => Math.max(1, p - 1))
+                      }
+                      disabled={previewPage <= 1}
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      ← Previous
+                    </button>
+                    <label className="flex items-center gap-1 text-sm text-gray-700">
+                      Page
+                      <select
+                        value={previewPage}
+                        aria-label="Preview page"
+                        onChange={(e) =>
+                          setPreviewPage(Number(e.target.value))
+                        }
+                        className="rounded border border-gray-300 px-2 py-1 text-sm"
+                      >
+                        {Array.from(
+                          { length: pageCount },
+                          (_, i) => i + 1,
+                        ).map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                      of {pageCount}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewPage((p) => Math.min(pageCount, p + 1))
+                      }
+                      disabled={previewPage >= pageCount}
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      Next →
+                    </button>
                   </div>
+                  <PdfPage
+                    key={previewPage}
+                    pdf={pdf}
+                    pageNumber={previewPage}
+                    pageCount={pageCount}
+                    onPageClick={handlePageClick}
+                    fields={fields}
+                    selectedFieldId={selectedFieldId}
+                    onFieldSelect={handleFieldSelect}
+                    onFieldUpdate={updateField}
+                  />
                 </div>
 
                 <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm lg:sticky lg:top-6">
