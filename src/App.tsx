@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
-import { PdfPage } from "./components/PdfPage";
+import { PdfPage, ZOOM_LEVELS } from "./components/PdfPage";
+import { PageThumbnail } from "./components/PageThumbnail";
 import { FillForm } from "./components/FillForm";
 import pdfjsLib from "./lib/pdfjs";
 import { detectFields } from "./lib/detectFields";
@@ -535,7 +536,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-0">
             <h1 className="text-xl font-bold">FillForm</h1>
             <p className="truncate text-sm text-gray-600">
@@ -687,7 +688,7 @@ function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto max-w-7xl px-4 py-6">
         {error && (
           <p
             role="alert"
@@ -728,64 +729,129 @@ function App() {
                 onPrint={handlePrintFilledPdf}
               />
             ) : (
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-                <div className="space-y-6">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPreviewPage((p) => Math.max(1, p - 1))
-                      }
-                      disabled={previewPage <= 1}
-                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
-                    >
-                      ← Previous
-                    </button>
-                    <label className="flex items-center gap-1 text-sm text-gray-700">
-                      Page
+              <div className="grid gap-4 lg:grid-cols-[112px_minmax(0,1fr)_340px] lg:items-start">
+                <div className="hidden lg:block">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Pages
+                  </p>
+                  <div className="space-y-2">
+                    {Array.from(
+                      { length: pageCount },
+                      (_, i) => i + 1,
+                    ).map((n) => (
+                      <PageThumbnail
+                        key={n}
+                        pdf={pdf}
+                        pageNumber={n}
+                        fieldCount={
+                          fields.filter((f) => f.page === n).length
+                        }
+                        selected={n === previewPage}
+                        onSelect={setPreviewPage}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="min-w-0 space-y-4">
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewPage((p) => Math.max(1, p - 1))
+                        }
+                        disabled={previewPage <= 1}
+                        aria-label="Previous page"
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                      >
+                        ←
+                      </button>
                       <select
                         value={previewPage}
                         aria-label="Preview page"
                         onChange={(e) =>
                           setPreviewPage(Number(e.target.value))
                         }
-                        className="rounded border border-gray-300 px-2 py-1 text-sm"
+                        className="rounded border border-gray-300 px-2 py-1.5 text-sm"
                       >
                         {Array.from(
                           { length: pageCount },
                           (_, i) => i + 1,
                         ).map((n) => (
                           <option key={n} value={n}>
-                            {n}
+                            Page {n} / {pageCount}
                           </option>
                         ))}
                       </select>
-                      of {pageCount}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPreviewPage((p) => Math.min(pageCount, p + 1))
-                      }
-                      disabled={previewPage >= pageCount}
-                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
-                    >
-                      Next →
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRedetect}
-                      disabled={detecting}
-                      title="Run detection again on this PDF with the current code — use it after an update that improves detection"
-                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
-                    >
-                      {detecting ? "Detecting…" : "Re-detect fields"}
-                    </button>
-                    {detectStatus && (
-                      <span className="text-sm text-green-700">
-                        {detectStatus}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewPage((p) => Math.min(pageCount, p + 1))
+                        }
+                        disabled={previewPage >= pageCount}
+                        aria-label="Next page"
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                      >
+                        →
+                      </button>
+                    </div>
+                    <span aria-hidden className="h-6 w-px bg-gray-200" />
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSetupZoom(
+                            ZOOM_LEVELS[
+                              Math.max(
+                                0,
+                                ZOOM_LEVELS.findIndex(
+                                  (z) => z >= setupZoom - 0.001,
+                                ) - 1,
+                              )
+                            ],
+                          )
+                        }
+                        disabled={setupZoom <= ZOOM_LEVELS[0]}
+                        aria-label="Zoom out"
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                      >
+                        −
+                      </button>
+                      <span className="w-12 text-center text-sm text-gray-700">
+                        {Math.round(setupZoom * 100)}%
                       </span>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSetupZoom(
+                            ZOOM_LEVELS[
+                              Math.min(
+                                ZOOM_LEVELS.length - 1,
+                                ZOOM_LEVELS.findIndex(
+                                  (z) => z >= setupZoom - 0.001,
+                                ) + 1,
+                              )
+                            ],
+                          )
+                        }
+                        disabled={
+                          setupZoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
+                        }
+                        aria-label="Zoom in"
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSetupZoom(1)}
+                        disabled={setupZoom === 1}
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                      >
+                        Fit
+                      </button>
+                    </div>
+                    <span aria-hidden className="h-6 w-px bg-gray-200" />
                     <button
                       type="button"
                       onClick={handleUndo}
@@ -810,6 +876,15 @@ function App() {
                     </button>
                     <button
                       type="button"
+                      onClick={handleRedetect}
+                      disabled={detecting}
+                      title="Run detection again on this PDF with the current code — use it after an update that improves detection"
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      {detecting ? "Detecting…" : "Re-detect"}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() =>
                         setShowAllPlaceholders((v) => !v)
                       }
@@ -823,8 +898,13 @@ function App() {
                     >
                       {showAllPlaceholders
                         ? "✓ Placeholders on"
-                        : "Show placeholders"}
+                        : "Placeholders"}
                     </button>
+                    {detectStatus && (
+                      <span className="text-sm text-green-700">
+                        {detectStatus}
+                      </span>
+                    )}
                   </div>
                   {addMode && (
                     <p className="text-sm text-blue-700">
@@ -845,7 +925,6 @@ function App() {
                       onFieldSelect={handleFieldSelect}
                       onFieldUpdate={updateField}
                       zoom={setupZoom}
-                      onZoomChange={setSetupZoom}
                       showAllPlaceholders={showAllPlaceholders}
                     />
                   </div>
