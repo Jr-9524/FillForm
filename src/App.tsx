@@ -152,6 +152,51 @@ function App() {
     }
   }
 
+  // Re-run detection on the already-loaded PDF with the current
+  // code — the fields only refresh on upload otherwise, so a pull
+  // that improves detection (e.g. snapping boxes onto the drawn
+  // lines) would leave stale boxes on screen until now. Manual box
+  // tweaks are reset; answers for fields that are still found are
+  // kept (detection ids are deterministic for the same PDF).
+  async function handleRedetect() {
+    if (!pdf) return;
+    if (
+      !window.confirm(
+        "Re-detect the blanks in this PDF? Your current fields and any box adjustments will be replaced. Answers for fields that are still found are kept.",
+      )
+    )
+      return;
+    const runId = ++detectionRunRef.current;
+    setDetecting(true);
+    setError(null);
+    try {
+      const detected = await detectFields(pdf);
+      if (detectionRunRef.current !== runId) return;
+      setFields(detected);
+      setSelectedFieldId(null);
+      setPreviewPage(1);
+      setMissingIds([]);
+      setSubmitted(false);
+      setAnswers((prev) => {
+        const kept: Record<string, string> = {};
+        for (const field of detected) {
+          if (prev[field.id] !== undefined) kept[field.id] = prev[field.id];
+        }
+        return kept;
+      });
+    } catch (detectErr) {
+      if (detectionRunRef.current === runId) {
+        setError(
+          detectErr instanceof Error
+            ? `Could not detect blanks: ${detectErr.message}`
+            : "Could not detect blanks.",
+        );
+      }
+    } finally {
+      if (detectionRunRef.current === runId) setDetecting(false);
+    }
+  }
+
   async function clearFile() {
     detectionRunRef.current++;
     await loadingTaskRef.current?.destroy();
@@ -470,6 +515,15 @@ function App() {
                       className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
                     >
                       Next →
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRedetect}
+                      disabled={detecting}
+                      title="Run detection again on this PDF with the current code — use it after an update that improves detection"
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      {detecting ? "Detecting…" : "Re-detect fields"}
                     </button>
                   </div>
                   <div ref={previewWrapRef}>

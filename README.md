@@ -167,6 +167,16 @@ the Setup highlight box for a text field now hugs the answer
 it, so the downloaded text no longer rides at the top of the box
 and pokes out of it.
 
+## Re-detect fields (2026-11-21)
+
+Detection only ran when a PDF was uploaded, so after a pull that
+improved detection the old boxes stayed on screen — the "School of
+Attendance" box sat on the label row while its real blank is the
+line below it. Setup now has a "Re-detect fields" button beside
+the pager: it runs detection again on the loaded PDF with the
+current code and replaces the fields (manual box tweaks are reset;
+answers for fields that are still found are kept).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
