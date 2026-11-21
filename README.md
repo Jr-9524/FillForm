@@ -231,6 +231,35 @@ fields), all text boxes render at least 16pt with their bottom
 exactly on the line, and a Times Bold 14 + Courier 10 filled PDF
 embeds Times-Bold and Courier with the answers in place.
 
+## Big-3 UI/UX fixes (2026-11-21)
+
+From a UI/UX + HCI review of the live site with the IEP:
+
+**Targets.** Boxes were ~15px tall with ~14px between neighbours
+(Eligibility checkboxes ~2px apart) and 10px corner handles, so
+dragging grabbed the wrong field. Now: a Zoom toolbar above every
+preview (Fit, 100–300%, re-renders sharper when zoomed, scrolls
+when wider than the column); each box has an invisible 4pt grab
+area past its visible edge; corner handles are 12px; and arrow
+keys nudge the selected box 1pt (Shift: 10pt) — Up is +y for every
+field type, so it moves up the page.
+
+**Check answers.** Nothing is Required by default, so the check
+passed with 134 of 136 fields empty and unlocked Download. Now
+"Check answers" counts every included field when none is marked
+Required (when some are Required, only those count), so the check
+is never vacuous. The result shows the real count ("134 fields
+still empty" / "36 of 136 filled, 100 still empty but none
+required"), and the Check / Download / Print / Clear bar is sticky
+at the bottom of the Fill form, so the buttons and the feedback
+are always visible instead of buried after 136 fields.
+
+**Placeholder.** Every box used to be filled with lorem ipsum,
+hiding the printed form underneath. Now only the selected or
+hovered box shows its placeholder; a "Show placeholders" toggle
+in the Setup toolbar turns them all on when the creator wants to
+check fonts. Detection unchanged (136 fields).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

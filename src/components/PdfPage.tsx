@@ -30,9 +30,21 @@ type PdfPageProps = {
    * draggable highlight boxes (Fill mode: what you type is what
    * downloads). */
   showAnswers?: boolean;
+  /** Zoom factor for the preview (1 = fit the column). The parent
+   * owns it so it survives paging. */
+  zoom?: number;
+  /** Called when the user changes the zoom from the toolbar. */
+  onZoomChange?: (zoom: number) => void;
+  /** When true, every Setup box shows its placeholder text. When
+   * false (default), only the selected or hovered box does, so the
+   * placeholders do not hide the printed form underneath. */
+  showAllPlaceholders?: boolean;
 };
 
 const RENDER_SCALE = 1.5;
+
+/** Zoom steps the toolbar offers (1 = fit the column). */
+export const ZOOM_LEVELS = [1, 1.25, 1.5, 2, 2.5, 3];
 
 // Padding inside a text box, in PDF points: the answer sits 4pt
 // in from the left and right edges and the box is at least the
@@ -66,12 +78,19 @@ export function PdfPage({
   onFieldUpdate,
   answers = {},
   showAnswers = false,
+  zoom = 1,
+  onZoomChange,
+  showAllPlaceholders = false,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageSizeRef = useRef({ width: 0, height: 0 });
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
+  // Field under the mouse — its placeholder shows even when it is
+  // not selected, so the creator can preview one box at a time
+  // without all the placeholders hiding the form.
+  const [hoveredFieldId, setHoveredFieldId] = useState<string | null>(null);
   // Displayed width of the page (CSS px) — the answer text is sized
   // from it, so it stays in scale with the canvas at any width.
   const [displayWidth, setDisplayWidth] = useState(0);
@@ -116,10 +135,13 @@ export function PdfPage({
       try {
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
-        const viewport = page.getViewport({ scale: RENDER_SCALE });
+        // Render sharper when zoomed in (capped at 3x) so the page
+        // does not blur as it grows past its fit size.
+        const renderScale = Math.min(RENDER_SCALE * zoom, 3);
+        const viewport = page.getViewport({ scale: renderScale });
         const size = {
-          width: viewport.width / RENDER_SCALE,
-          height: viewport.height / RENDER_SCALE,
+          width: viewport.width / renderScale,
+          height: viewport.height / renderScale,
         };
         pageSizeRef.current = size;
         setPageSize(size);
@@ -147,7 +169,7 @@ export function PdfPage({
       // StrictMode, or a new file) does not draw over this canvas.
       void renderTask?.cancel();
     };
-  }, [pdf, pageNumber]);
+  }, [pdf, pageNumber, zoom]);
 
   // Display box (PDF points from the page top) for a field. A text
   // field's y is the text baseline — the drawn line itself — and the
@@ -326,6 +348,8 @@ export function PdfPage({
 
   // Corner handles for the selected box, positioned from the box's
   // own left/top/width/height (percentages of the page container).
+  // Handles are 12px so they are grabbable; the -6px offset centres
+  // each one on its corner.
   function handleStyle(
     key: "nw" | "ne" | "sw" | "se",
     left: number,
@@ -335,22 +359,107 @@ export function PdfPage({
   ): { left: string; top: string; cursor: string } {
     const x =
       key === "nw" || key === "sw"
-        ? `calc(${left}% - 5px)`
-        : `calc(${left + width}% - 5px)`;
+        ? `calc(${left}% - 6px)`
+        : `calc(${left + width}% - 6px)`;
     const y =
       key === "nw" || key === "ne"
-        ? `calc(${top}% - 5px)`
-        : `calc(${top + height}% - 5px)`;
+        ? `calc(${top}% - 6px)`
+        : `calc(${top + height}% - 6px)`;
     const cursor =
       key === "nw" || key === "se" ? "nwse-resize" : "nesw-resize";
     return { left: x, top: y, cursor };
   }
 
+  // Nudge the selected field with the arrow keys: 1pt per press,
+  // 10pt with Shift — precise placement without dragging a tiny
+  // box. Up on screen is +y (PDF points run from the bottom).
+  function handleBoxKeyDown(
+    event: React.KeyboardEvent,
+    field: DetectedField,
+  ) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onFieldSelect?.(field.id);
+      return;
+    }
+    if (!onFieldUpdate) return;
+    const step = event.shiftKey ? 10 : 1;
+    let dx = 0;
+    let dy = 0;
+    if (event.key === "ArrowLeft") dx = -step;
+    else if (event.key === "ArrowRight") dx = step;
+    else if (event.key === "ArrowUp") dy = step;
+    else if (event.key === "ArrowDown") dy = -step;
+    else return;
+    event.preventDefault();
+    onFieldSelect?.(field.id);
+    // Up on screen is +y for every type: a text field's y is its
+    // baseline and a textarea's y is its top edge, and both rise
+    // when the box moves up the page (PDF points run from the
+    // bottom).
+    onFieldUpdate(field.id, {
+      x: Math.max(0, Math.round((field.x + dx) * 10) / 10),
+      y: Math.max(0, Math.round((field.y + dy) * 10) / 10),
+    });
+  }
+
+  // Zoom toolbar: step through the levels, or back to Fit (1x).
+  // The parent owns the zoom value so it survives paging.
+  const zoomIndex = Math.max(
+    0,
+    ZOOM_LEVELS.findIndex((z) => z >= zoom - 0.001),
+  );
+  function setZoomLevel(index: number) {
+    const next = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index))];
+    onZoomChange?.(next);
+  }
+
   return (
+    <div>
+      {onZoomChange && (
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-500">Zoom</span>
+          <button
+            type="button"
+            onClick={() => setZoomLevel(zoomIndex - 1)}
+            disabled={zoomIndex <= 0}
+            aria-label="Zoom out"
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm hover:bg-gray-100 disabled:opacity-40"
+          >
+            −
+          </button>
+          <span className="w-12 text-center text-sm text-gray-700">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => setZoomLevel(zoomIndex + 1)}
+            disabled={zoomIndex >= ZOOM_LEVELS.length - 1}
+            aria-label="Zoom in"
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm hover:bg-gray-100 disabled:opacity-40"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => onZoomChange(1)}
+            disabled={zoom === 1}
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm hover:bg-gray-100 disabled:opacity-40"
+          >
+            Fit
+          </button>
+        </div>
+      )}
+      <div className="overflow-x-auto">
     <figure
       id={`page-${pageNumber}`}
       className={`mx-auto w-fit rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${onPageClick ? "cursor-crosshair" : ""}`}
       title={onPageClick ? "Click to add a field here" : undefined}
+      style={
+        zoom > 1
+          ? { width: `${zoom * 100}%`, marginLeft: 0, marginRight: 0 }
+          : undefined
+      }
     >
       {error ? (
         <p className="max-w-md text-sm text-red-600">
@@ -399,21 +508,18 @@ export function PdfPage({
                     role="button"
                     tabIndex={0}
                     aria-label={`Field ${field.order}: ${field.label}`}
-                    title={`${field.order}. ${field.label}${onFieldUpdate ? " — drag to move, corners to resize" : ""}`}
+                    title={`${field.order}. ${field.label}${onFieldUpdate ? " — drag to move, corners to resize, arrow keys nudge 1pt (Shift: 10pt)" : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       onFieldSelect?.(field.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onFieldSelect?.(field.id);
-                      }
                     }}
                     onPointerDown={(e) => startDrag(e, field, "move")}
                     onPointerMove={handleDragMove}
                     onPointerUp={endDrag}
                     onPointerCancel={endDrag}
+                    onMouseEnter={() => setHoveredFieldId(field.id)}
+                    onMouseLeave={() => setHoveredFieldId(null)}
+                    onKeyDown={(e) => handleBoxKeyDown(e, field)}
                     className={`absolute touch-none rounded-sm ${
                       isSelected
                         ? "cursor-move border-2 border-blue-600 bg-blue-500/30"
@@ -426,7 +532,20 @@ export function PdfPage({
                       height: `${height}%`,
                     }}
                   >
-                    {scale > 0 && (
+                    {/* Invisible grab area, 4pt past the box on every
+                        side: the boxes are only ~15px tall on screen
+                        and some sit ~2px apart, so the visible edge
+                        alone is too small a target to grab reliably.
+                        Pointer events bubble to this box, so a press
+                        on the padding still drags this field. */}
+                    <span
+                      aria-hidden
+                      className="absolute -inset-1"
+                    />
+                    {scale > 0 &&
+                      (showAllPlaceholders ||
+                        isSelected ||
+                        hoveredFieldId === field.id) && (
                       <span
                         aria-hidden
                         className="pointer-events-none absolute inset-0 overflow-hidden text-gray-500"
@@ -478,7 +597,7 @@ export function PdfPage({
                           onPointerMove={handleDragMove}
                           onPointerUp={endDrag}
                           onPointerCancel={endDrag}
-                          className="absolute z-10 h-2.5 w-2.5 touch-none rounded-sm border border-blue-700 bg-white shadow"
+                          className="absolute z-10 h-3 w-3 touch-none rounded-sm border border-blue-700 bg-white shadow"
                           style={{
                             left: style.left,
                             top: style.top,
@@ -586,5 +705,7 @@ export function PdfPage({
         Page {pageNumber} of {pageCount}
       </figcaption>
     </figure>
+      </div>
+    </div>
   );
 }

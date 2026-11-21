@@ -49,6 +49,11 @@ function App() {
   // Add-field mode: only when this is on does clicking the page add
   // a field — plain clicks no longer pop the label prompt by accident.
   const [addMode, setAddMode] = useState(false);
+  // Setup preview zoom (1 = fit the column) and whether every Setup
+  // box shows its placeholder text (off = only the selected or
+  // hovered box does, so the placeholders do not hide the form).
+  const [setupZoom, setSetupZoom] = useState(1);
+  const [showAllPlaceholders, setShowAllPlaceholders] = useState(false);
   const previewWrapRef = useRef<HTMLDivElement>(null);
   const [previewHeight, setPreviewHeight] = useState<number | null>(null);
 
@@ -270,10 +275,14 @@ function App() {
   }
 
   function handleCheckAnswers() {
-    const missing = includedFields
-      .filter(
-        (field) => field.required && (answers[field.id] ?? "").trim() === "",
-      )
+    // What counts as "must be filled": the fields the creator marked
+    // Required. But when nothing is marked Required at all, the check
+    // would pass with the whole form empty — so then every included
+    // field counts instead, and the check is never vacuous.
+    const requiredFields = includedFields.filter((field) => field.required);
+    const toCheck = requiredFields.length > 0 ? requiredFields : includedFields;
+    const missing = toCheck
+      .filter((field) => (answers[field.id] ?? "").trim() === "")
       .map((field) => field.id);
     setMissingIds(missing);
     setSubmitted(true);
@@ -546,6 +555,23 @@ function App() {
                     >
                       {addMode ? "✓ Adding… click page" : "+ Add field"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowAllPlaceholders((v) => !v)
+                      }
+                      aria-pressed={showAllPlaceholders}
+                      title="Show the placeholder text in every box — off shows it only on the selected or hovered box, so the printed form stays readable"
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                        showAllPlaceholders
+                          ? "bg-blue-700 text-white hover:bg-blue-800"
+                          : "border border-gray-300 bg-white hover:bg-gray-100"
+                      }`}
+                    >
+                      {showAllPlaceholders
+                        ? "✓ Placeholders on"
+                        : "Show placeholders"}
+                    </button>
                   </div>
                   {addMode && (
                     <p className="text-sm text-blue-700">
@@ -565,6 +591,9 @@ function App() {
                       selectedFieldId={selectedFieldId}
                       onFieldSelect={handleFieldSelect}
                       onFieldUpdate={updateField}
+                      zoom={setupZoom}
+                      onZoomChange={setSetupZoom}
+                      showAllPlaceholders={showAllPlaceholders}
                     />
                   </div>
                 </div>

@@ -41,9 +41,16 @@ export function FillForm({
   onPrint,
 }: FillFormProps) {
   const [previewPage, setPreviewPage] = useState(1)
+  // Live-preview zoom (1 = fit the column).
+  const [previewZoom, setPreviewZoom] = useState(1)
   const filledCount = fields.filter(
     (field) => (answers[field.id] ?? '').trim() !== '',
   ).length
+  const emptyCount = fields.length - filledCount
+  // Whether any field is marked Required in Setup: when none is,
+  // "Check answers" counts every included field instead, so the
+  // check is never vacuous (see App.handleCheckAnswers).
+  const hasRequired = fields.some((field) => field.required)
 
   if (fields.length === 0) {
     return (
@@ -100,6 +107,8 @@ export function FillForm({
             fields={fields}
             answers={answers}
             showAnswers
+            zoom={previewZoom}
+            onZoomChange={setPreviewZoom}
           />
           <p className="text-xs text-gray-500">
             Live preview — your answers appear on the page as you type,
@@ -118,18 +127,14 @@ export function FillForm({
         {filledCount} of {fields.length} filled
       </p>
 
-      {missingIds.length > 0 && (
-        <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Please fill in the required fields marked below.
-        </p>
-      )}
-
-      {submitted && missingIds.length === 0 && (
-        <p role="status" className="mt-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          All required fields are filled. You can download or print the
-          filled PDF now.
-        </p>
-      )}
+      <p className="text-sm text-gray-600">
+        {filledCount} of {fields.length} filled
+        {!hasRequired && (
+          <span className="text-gray-500">
+            {" "}· no fields are marked Required, so all fields count
+          </span>
+        )}
+      </p>
 
       <div className="mt-5 space-y-5">
         {fields.map((field) => {
@@ -187,7 +192,9 @@ export function FillForm({
               )}
               {isMissing && (
                 <p className="mt-1 text-xs text-red-600">
-                  This field is required.
+                  {field.required
+                    ? 'This field is required.'
+                    : 'This field is empty — fill it in before downloading.'}
                 </p>
               )}
             </div>
@@ -195,42 +202,65 @@ export function FillForm({
         })}
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        <button
-          type="submit"
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
-        >
-          Check answers
-        </button>
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={!canGenerate || generating}
-          className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-40"
-        >
-          {generating ? 'Generating…' : 'Download filled PDF'}
-        </button>
-        <button
-          type="button"
-          onClick={onPrint}
-          disabled={!canGenerate || generating}
-          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
-        >
-          Print filled PDF
-        </button>
-        <button
-          type="button"
-          onClick={onClearAnswers}
-          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
-        >
-          Clear answers
-        </button>
+      {/* Sticky action bar: the buttons and the check result stay
+          visible while scrolling the list, so the feedback is where
+          the user is — not at the top of a 136-field form. */}
+      <div className="sticky bottom-0 -mx-6 mt-6 border-t border-gray-200 bg-white px-6 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        {missingIds.length > 0 && (
+          <p role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            {missingIds.length} {missingIds.length === 1 ? 'field' : 'fields'} still empty — {hasRequired ? 'the required ones are marked below.' : 'fill them in below.'}
+          </p>
+        )}
+
+        {submitted && missingIds.length === 0 && (
+          <p role="status" className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
+            {filledCount} of {fields.length} filled.
+            {emptyCount > 0
+              ? ` ${emptyCount} ${emptyCount === 1 ? 'field is' : 'fields are'} still empty, but none ${emptyCount === 1 ? 'is' : 'are'} required — you can download or print now.`
+              : ' You can download or print the filled PDF now.'}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-auto text-sm text-gray-600">
+            {filledCount} of {fields.length} filled
+          </span>
+          <button
+            type="submit"
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
+          >
+            Check answers
+          </button>
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={!canGenerate || generating}
+            className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-40"
+          >
+            {generating ? 'Generating…' : 'Download filled PDF'}
+          </button>
+          <button
+            type="button"
+            onClick={onPrint}
+            disabled={!canGenerate || generating}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+          >
+            Print filled PDF
+          </button>
+          <button
+            type="button"
+            onClick={onClearAnswers}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
+          >
+            Clear answers
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {canGenerate
+            ? 'Download gives you the original PDF with your answers on the blanks. Print opens it in a new tab — print from there (Ctrl+P).'
+            : 'Fill the form and click “Check answers” first — download and print unlock once the fields that count are filled.'}
+        </p>
       </div>
-      <p className="mt-3 text-xs text-gray-500">
-        {canGenerate
-          ? 'Download gives you the original PDF with your answers on the blanks. Print opens it in a new tab — print from there (Ctrl+P).'
-          : 'Fill the form and click “Check answers” first — download and print unlock once all required fields are filled.'}
-      </p>
     </form>
     </div>
   )
