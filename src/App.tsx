@@ -36,6 +36,8 @@ function App() {
   const [fields, setFields] = useState<DetectedField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("setup");
+  // Header "⋯" menu (holds the destructive Clear PDF action).
+  const [menuOpen, setMenuOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [missingIds, setMissingIds] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -478,17 +480,131 @@ function App() {
     (field) => field.included,
   ).length;
 
+  // Stepper: Upload → Set up fields → Fill → Review & download.
+  // Review is current once Check answers passes; a changed answer
+  // un-submits, so the stepper falls back to Fill.
+  const reviewPassed = submitted && missingIds.length === 0;
+  const steps = [
+    {
+      key: "upload",
+      label: "Upload",
+      done: !!pdf,
+      current: !pdf,
+    },
+    {
+      key: "setup",
+      label: "Set up fields",
+      done: !!pdf && view === "fill",
+      current: !!pdf && view === "setup",
+    },
+    {
+      key: "fill",
+      label: "Fill",
+      done: reviewPassed,
+      current: !!pdf && view === "fill" && !reviewPassed,
+    },
+    {
+      key: "review",
+      label: "Review & download",
+      done: false,
+      current: reviewPassed,
+    },
+  ] as const;
+
+  function goToStep(key: string) {
+    if (key === "upload") {
+      inputRef.current?.click();
+    } else if (key === "setup") {
+      if (pdf) setView("setup");
+    } else if (key === "fill" || key === "review") {
+      if (pdf) setView("fill");
+    }
+  }
+
+  function handleClearPdf() {
+    setMenuOpen(false);
+    if (
+      window.confirm(
+        "Remove this PDF and its saved answers? This cannot be undone.",
+      )
+    ) {
+      void clearFile();
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <div>
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
+          <div className="min-w-0">
             <h1 className="text-xl font-bold">FillForm</h1>
-            <p className="text-sm text-gray-600">
-              Upload a PDF softcopy and preview it page by page.
+            <p className="truncate text-sm text-gray-600">
+              {pdf && fileName
+                ? `${fileName} · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`
+                : "Upload a PDF softcopy and preview it page by page."}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <nav aria-label="FillForm steps" className="mx-auto">
+            <ol className="flex items-center">
+              {steps.map((step, i) => {
+                const clickable = step.done || step.current;
+                return (
+                  <li key={step.key} className="flex items-center">
+                    {i > 0 && (
+                      <span
+                        aria-hidden
+                        className="h-px w-3 bg-gray-300 sm:w-5"
+                      />
+                    )}
+                    {clickable ? (
+                      <button
+                        type="button"
+                        onClick={() => goToStep(step.key)}
+                        aria-current={step.current ? "step" : undefined}
+                        className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-gray-100"
+                      >
+                        <span
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                            step.done
+                              ? "bg-green-600 text-white"
+                              : step.current
+                                ? "bg-blue-700 text-white"
+                                : "bg-gray-200 text-gray-500"
+                          }`}
+                        >
+                          {step.done ? "✓" : i + 1}
+                        </span>
+                        <span
+                          className={`hidden text-sm md:inline ${
+                            step.current
+                              ? "font-medium text-gray-900"
+                              : step.done
+                                ? "text-gray-600"
+                                : "text-gray-400"
+                          }`}
+                        >
+                          {step.label}
+                        </span>
+                      </button>
+                    ) : (
+                      <span
+                        className="flex items-center gap-1.5 px-1.5 py-1"
+                        aria-disabled="true"
+                      >
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-500">
+                          {i + 1}
+                        </span>
+                        <span className="hidden text-sm text-gray-400 md:inline">
+                          {step.label}
+                        </span>
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
             <input
               ref={inputRef}
               type="file"
@@ -496,21 +612,75 @@ function App() {
               className="hidden"
               onChange={(e) => void handleFile(e.target.files?.[0])}
             />
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
-            >
-              {pdf ? "Upload a different PDF" : "Upload PDF"}
-            </button>
-            {pdf && (
+            {pdf ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
+                >
+                  Upload a different PDF
+                </button>
+                {view === "setup" ? (
+                  <button
+                    type="button"
+                    onClick={() => setView("fill")}
+                    className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
+                  >
+                    Continue to Fill →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setView("setup")}
+                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
+                  >
+                    ← Back to setup
+                  </button>
+                )}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    aria-label="More actions"
+                    aria-expanded={menuOpen}
+                    aria-haspopup="menu"
+                    className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium hover:bg-gray-100"
+                  >
+                    ⋯
+                  </button>
+                  {menuOpen && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Close menu"
+                        onClick={() => setMenuOpen(false)}
+                        className="fixed inset-0 z-10 cursor-default"
+                      />
+                      <div
+                        role="menu"
+                        className="absolute right-0 z-20 mt-1 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={handleClearPdf}
+                          className="block w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                        >
+                          Clear PDF
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
               <button
                 type="button"
-                onClick={() => void clearFile()}
-                title="Remove this PDF and its saved answers"
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
+                onClick={() => inputRef.current?.click()}
+                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
               >
-                Clear PDF
+                Upload PDF
               </button>
             )}
           </div>
@@ -541,39 +711,6 @@ function App() {
 
         {pdf && (
           <>
-            <div
-              className="mb-6 flex gap-2"
-              role="tablist"
-              aria-label="FillForm views"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === "setup"}
-                onClick={() => setView("setup")}
-                className={`rounded-md px-4 py-2 text-sm font-medium ${
-                  view === "setup"
-                    ? "bg-blue-700 text-white"
-                    : "border border-gray-300 bg-white hover:bg-gray-100"
-                }`}
-              >
-                1. Setup fields
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === "fill"}
-                onClick={() => setView("fill")}
-                className={`rounded-md px-4 py-2 text-sm font-medium ${
-                  view === "fill"
-                    ? "bg-blue-700 text-white"
-                    : "border border-gray-300 bg-white hover:bg-gray-100"
-                }`}
-              >
-                2. Fill form
-              </button>
-            </div>
-
             {view === "fill" ? (
               <FillForm
                 fields={includedFields}
@@ -593,13 +730,6 @@ function App() {
             ) : (
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
                 <div className="space-y-6">
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium text-gray-900">
-                      {fileName}
-                    </span>
-                    {" — "}
-                    {pageCount} {pageCount === 1 ? "page" : "pages"}
-                  </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
