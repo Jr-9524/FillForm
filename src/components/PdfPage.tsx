@@ -137,11 +137,18 @@ export function PdfPage({
 
   // The box as drawn, in PDF points from the page's top edge.
   // Detection y is the blank line itself, so a text box straddles
-  // it — 3pt below the line (descenders reach ~2.9pt at 12pt) and
-  // the rest above, so the downloaded answer (cap top ~8.4pt above
-  // the line) sits inside the box instead of poking out of its top;
-  // a checkbox box is the square itself; a textarea's y is the TOP
-  // of its box, so the box is drawn full-size.
+  // Display box (PDF points from the page top) for a field. A text
+  // field's y is the text baseline — the drawn line itself — and the
+  // box sits ON that line: its bottom edge is the baseline, so the
+  // box is the writing area above the line, the way a text input
+  // sits on an underline. Dragging the box so its bottom edge is on
+  // the line puts the answer's baseline exactly on the line, which is
+  // where the download draws it. (An earlier split put 3pt of the box
+  // below the line and the rest above; the box then read as floating
+  // above the line and, when a user aligned its bottom edge with the
+  // line, the answer landed 3pt above it.) A checkbox box is the
+  // square itself; a textarea's y is the TOP of its box, so the box
+  // is drawn full-size.
   function displayBox(field: DetectedField): DisplayBox {
     const ph = pageSizeRef.current.height;
     if (field.type === "textarea") {
@@ -157,7 +164,7 @@ export function PdfPage({
     }
     return {
       left: field.x,
-      top: ph - field.y - (field.height - 3),
+      top: ph - field.y - field.height,
       width: field.width,
       height: field.height,
     };
@@ -187,7 +194,7 @@ export function PdfPage({
     }
     return {
       x,
-      y: Math.round((ph - box.top - (height - 3)) * 10) / 10,
+      y: Math.round((ph - box.top - height) * 10) / 10,
       width,
       height,
     };
@@ -408,7 +415,9 @@ export function PdfPage({
                           alignItems:
                             field.type === "checkbox"
                               ? "center"
-                              : "flex-start",
+                              : field.type === "textarea"
+                                ? "flex-start"
+                                : "flex-end",
                           justifyContent:
                             field.type === "checkbox"
                               ? "center"
@@ -515,7 +524,13 @@ export function PdfPage({
                   className="pointer-events-none absolute overflow-hidden whitespace-nowrap text-black"
                   style={{
                     left: `${((field.x + 4) / pw) * 100}%`,
-                    top: `${((ph - field.y - size) / ph) * 100}%`,
+                    // The div's top is the text's cap top, not its
+                    // baseline: in a lineHeight-1 Helvetica line the
+                    // baseline sits ~0.85em below the div top, so the
+                    // top is placed 0.85*size above the field's y
+                    // (the line) to put the baseline exactly on it,
+                    // matching the downloaded PDF.
+                    top: `${((ph - field.y - size * 0.85) / ph) * 100}%`,
                     fontSize: `${size * scale}px`,
                     lineHeight: 1,
                     fontFamily: "Helvetica, Arial, sans-serif",

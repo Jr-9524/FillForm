@@ -188,6 +188,26 @@ field by accident: Setup has a "+ Add field" button — only while
 it is on does a page click add a field (the new field is selected
 right away so it can be dragged and resized at once).
 
+## Box sits on the line (2026-11-21)
+
+Tested on the live Vercel site with the IEP: every detected text
+box used to read as floating above its underline, and dragging a
+box onto its line shifted the answer 3pt above it in the download.
+The box used to straddle the line (3pt below it, the rest above),
+so aligning its bottom edge with the line moved the baseline.
+Now a text box sits ON its line — its bottom edge is the text
+baseline (the drawn line), the way a text input sits on an
+underline. Drag the box so its bottom edge is on the line and the
+answer lands exactly on it, in the live preview and the download.
+The single-line placeholder now hugs the bottom of the box too,
+so the lorem ipsum sits on the line like a real answer; textareas
+still start at the top. The Fill preview text is also nudged so
+its baseline lands on the line (a lineHeight-1 Helvetica line puts
+the baseline ~0.85em below the div top). Verified: all 21 text
+fields on IEP page 1 have their box bottom exactly on their line,
+and drag/resize round-trips exactly (0 failures). Detection is
+unchanged (136 fields).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
