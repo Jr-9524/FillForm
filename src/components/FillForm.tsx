@@ -77,22 +77,28 @@ export function FillForm({
   for (const field of visibleFields) {
     labelCounts.set(field.label, (labelCounts.get(field.label) ?? 0) + 1)
   }
-  // Group the visible fields under their section headings, in
-  // document order. In "All pages" mode the same section name on
-  // different pages stays separate ("Page N · Section").
+  // Group the visible fields under their section headings. The
+  // document order interleaves sections (page 1 is multi-column, so
+  // STUDENT INFORMATION and MEETING INFORMATION alternate row by
+  // row), so grouping by consecutive runs would repeat each heading
+  // once per field. Instead, all fields of one section collect
+  // under a single heading, in first-appearance order, and in
+  // document order within the section. In "All pages" mode the same
+  // section name on different pages stays separate ("Page N · Section").
   const sections: { key: string; heading: string; fields: DetectedField[] }[] =
     []
+  const sectionByKey = new Map<string, (typeof sections)[number]>()
   for (const field of visibleFields) {
-    const key = `${field.page}|${field.group || 'General'}`
-    const heading = showAllPages
-      ? `Page ${field.page} · ${field.group || 'General'}`
-      : field.group || 'General'
-    const last = sections[sections.length - 1]
-    if (last && last.key === key) {
-      last.fields.push(field)
-    } else {
-      sections.push({ key, heading, fields: [field] })
+    const group = field.group || "General"
+    const key = showAllPages ? `${field.page}|${group}` : group
+    const heading = showAllPages ? `Page ${field.page} · ${group}` : group
+    let section = sectionByKey.get(key)
+    if (!section) {
+      section = { key, heading, fields: [] }
+      sectionByKey.set(key, section)
+      sections.push(section)
     }
+    section.fields.push(field)
   }
 
   if (fields.length === 0) {
@@ -272,7 +278,7 @@ export function FillForm({
                           )}
                           {showSection && (
                             <span className="ml-2 font-normal text-gray-600">
-                              {field.group}
+                              · {field.group}
                             </span>
                           )}
                         </span>
@@ -299,7 +305,7 @@ export function FillForm({
                       )}
                       {showSection && (
                         <span className="ml-2 font-normal text-gray-600">
-                          {field.group}
+                          · {field.group}
                         </span>
                       )}
                     </label>

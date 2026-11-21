@@ -287,7 +287,7 @@ export function FieldPanel({
                             {field.group && (
                               <span
                                 title={`Section: ${field.group}`}
-                                className="max-w-28 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-600"
+                                className="max-w-40 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-600"
                               >
                                 {field.group}
                               </span>
