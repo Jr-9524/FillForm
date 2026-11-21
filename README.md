@@ -307,6 +307,65 @@ hovered box shows its placeholder; a "Show placeholders" toggle
 in the Setup toolbar turns them all on when the creator wants to
 check fonts. Detection unchanged (136 fields).
 
+## Slice 6 — UI/UX polish (2026-11-21)
+
+UI-only pass. Detection, field data structures, stored coordinates and
+the pdf-lib output are untouched.
+
+- **Header:** a 4-step indicator — Upload → Set up fields → Fill →
+  Review & download. Completed steps show a green check, the current
+  step is highlighted, future steps are muted. "Review & download"
+  becomes current once Check answers passes; changing an answer
+  un-submits, so it falls back to Fill. Steps 2 and 3 navigate; Upload
+  opens the file picker. The file name and page count sit under the
+  logo. Header actions: "Upload a different PDF" plus one primary
+  action per step ("Continue to Fill →" in Setup, "← Back to setup" in
+  Fill). "Clear PDF" moved out of the header into a "⋯" menu with a
+  confirm dialog.
+- **Setup layout (3 columns):** a left rail of page thumbnails (one
+  per page, field count under each, current page highlighted, click to
+  jump; rendered lazily at scale 0.2 via IntersectionObserver), a
+  grouped toolbar (page nav, zoom − 100% + Fit, Undo, + Add field,
+  Re-detect, Placeholders toggle), and the field panel on the right.
+  The zoom controls moved out of the PDF component into the toolbar
+  for Setup; the Fill preview keeps its own zoom toolbar.
+- **Field panel:** only one field expanded at a time (the selected
+  one) — Label, Type, Font, Include in form, Required, X/Y/W/H inputs.
+  The rest collapse to one-line rows: number, label, type tag, Include
+  checkbox. Filter chips: All / Needs review (N) / Excluded (N).
+  "Needs review" is computed in the UI only (a field that overlaps
+  another field on the same page, extends outside the page, or is very
+  small) — `src/lib/fieldReview.ts`. Document order and section tags
+  are kept; a repeated label shows its section as secondary text.
+  Selecting a box expands and scrolls to its card; selecting a card
+  selects the box and scrolls the preview to it.
+- **Fill screen:** live preview on the left, answer panel on the right
+  (420px). One progress bar with "X of N answered" (the duplicate
+  count in the sticky bar is gone), plus a This page / All pages
+  toggle. Fields are grouped under one section heading each — grouped
+  by section, not by consecutive runs, because page 1 is multi-column
+  and the document order interleaves sections (STUDENT INFORMATION and
+  MEETING INFORMATION alternate row by row), which made each heading
+  repeat once per field. A repeated label shows its section next to it
+  with a "·" separator. Checkbox fields render as an inline checkbox
+  with the label beside it. The focused field gets a blue outline on
+  the preview and the preview scrolls to it. Sticky footer: "Review
+  answers" (primary), Download and Print (disabled until the check
+  passes), Clear answers (with a confirm). Bottom padding on the list
+  keeps the footer from covering the last field.
+- **Accessibility + polish:** every button is at least 40px tall and
+  keyboard focus shows a visible blue ring (both in `src/index.css`).
+  Helper text darkened from gray-400/500 to gray-600 (4.5:1). "Include
+  in form" and "Required" use the same wording everywhere, with a
+  one-line helper under the panel heading.
+
+Acceptance checks: the IEP still detects 136 fields over 9 pages
+(40/8/11/11/11/24/26/1/4); the filled PDF still generates at the same
+stored coordinates; Check answers still counts all included fields
+when none is marked Required. Not yet verified on the live site: no
+console errors (DevTools did not open in the test browser), and the
+1280px / ~1024px layout (the test browser offers no viewport resize).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
