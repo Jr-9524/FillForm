@@ -118,14 +118,20 @@ export function PdfPage({
               const isSelected = field.id === selectedFieldId;
               // Percentages, so the box stays aligned if the canvas
               // is scaled down by CSS. PDF y is bottom-up, CSS is top-down.
+              // Detection y is the blank line itself, so a text box
+              // straddles it (5pt below to 9pt above) instead of
+              // floating above it; a checkbox box is the square itself.
               const left = (field.x / pageSize.width) * 100;
               const width = (field.width / pageSize.width) * 100;
+              const isCheckbox = field.type === "checkbox";
               const top =
-                ((pageSize.height - field.y - Math.max(field.height, 12)) /
+                ((pageSize.height -
+                  field.y -
+                  (isCheckbox ? field.height : 9)) /
                   pageSize.height) *
                 100;
               const height =
-                (Math.max(field.height, 12) / pageSize.height) * 100;
+                ((isCheckbox ? field.height : 14) / pageSize.height) * 100;
               return (
                 <button
                   key={field.id}

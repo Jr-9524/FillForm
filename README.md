@@ -60,6 +60,30 @@ Full plan: `../softcopy-form-filler/BUILD_PLAN.md`
 - Overlay spacing: answers are drawn 4pt to the right of the label,
   so they no longer stick to the colon ("Student Name: awd").
 
+## Vector-line detection (2026-11-21, alignment fix)
+
+The blanks in a form are drawn lines, so detection now reads them
+straight from the PDF (pdf.js operator list): a field snaps to the
+drawn line's exact position and length, instead of guessing a width
+from the text gap. That fixes the highlight alignment and finds
+blanks the text rules missed:
+
+- Same-row lines: the box sits exactly on the underline, at its real
+  length (no more 200pt boxes running to the column edge).
+- Below-label lines: blanks that sit under their label ("School of
+  Attendance:", "School Address:", "Contact Number:") are now found.
+- Drawn checkboxes: vector squares (e.g. the Meeting options) become
+  checkbox fields, with the label to their right.
+- Wrapped labels are joined ("Date of Initial Meeting to Determine
+  Eligibility", "Graphic organizers for writing").
+- Checkbox options with no blank ("☐ Therapy Services:") no longer
+  get a phantom text field — just the checkbox.
+- The highlight box straddles the blank line instead of floating
+  above it. On the IEP: 113 fields (was 72), page 1 is 40.
+- Fallback: forms with no drawn lines still use the text gap/column
+  rules. Scanned/image-only PDFs still need OCR (a later stretch,
+  not V1).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

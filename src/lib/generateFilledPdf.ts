@@ -29,13 +29,14 @@ export async function generateFilledPdf(
     const page = pages[field.page - 1]
     if (!page) continue
 
-    // Checkbox: a checked box gets an X inside the box.
+    // Checkbox: a checked box gets an X inside the box. Detection
+    // stores the box's bottom edge in field.y.
     if (field.type === 'checkbox') {
       if (['true', 'checked', 'yes', 'x'].includes(text.toLowerCase())) {
         page.drawText('X', {
-          x: field.x + 1,
-          y: field.y,
-          size: 11,
+          x: field.x + 2,
+          y: field.y + 3,
+          size: 10,
           font,
           color: rgb(0, 0, 0),
         })

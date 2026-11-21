@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { sortAndOrderFields } from "./fields";
 import type { DetectedField } from "./fields";
 
@@ -30,6 +30,176 @@ const UNDERSCORE_RUN = /_{3,}/g;
 const LINE_TOLERANCE = 4; // points: items this close in y count as one line
 const MIN_GAP_AFTER_LABEL = 20; // points of empty space after "Label:" = a blank
 const CHECKBOX_CHARS = new Set(["☐", "□", "☑", "☒"]);
+
+// pdf.js operator codes (OPS) and path codes (DrawOPS).
+const OP_SAVE = 10;
+const OP_RESTORE = 11;
+const OP_TRANSFORM = 12;
+const OP_CONSTRUCT_PATH = 91;
+const PAINT_STROKE = 20;
+const PAINT_FILL = 22;
+
+type VecLine = { x1: number; y1: number; x2: number; y2: number };
+type VecSquare = { x: number; y: number; size: number };
+type Matrix = [number, number, number, number, number, number];
+
+/** Matrix multiply: apply b, then a. */
+function mulMatrix(a: Matrix, b: Matrix): Matrix {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+
+/**
+ * Read the page's drawn vector shapes: the blanks in a form are
+ * usually drawn lines (stroked paths), not text — so the line itself
+ * is the ground truth for where a blank is and how long it is.
+ * Returns horizontal stroked lines (25–200pt) and small filled
+ * squares (9–17pt, i.e. drawn checkboxes). `constructPath` args are
+ * [paintOp, [interleaved DrawOPS path], bbox]; path ops are
+ * moveTo 0 / lineTo 1 / curveTo 2 / quadraticCurveTo 3 / closePath 4.
+ */
+async function extractVector(
+  page: PDFPageProxy,
+): Promise<{ lines: VecLine[]; squares: VecSquare[] }> {
+  const lines: VecLine[] = [];
+  const squares: VecSquare[] = [];
+  let opList: Awaited<ReturnType<typeof page.getOperatorList>>;
+  try {
+    opList = await page.getOperatorList();
+  } catch {
+    return { lines, squares };
+  }
+
+  let ctm: Matrix = [1, 0, 0, 1, 0, 0];
+  const stack: Matrix[] = [];
+  const fillSegs: VecLine[] = [];
+
+  for (let i = 0; i < opList.fnArray.length; i++) {
+    const fn = opList.fnArray[i];
+    const args = opList.argsArray[i] as unknown[];
+    if (fn === OP_SAVE) {
+      stack.push(ctm);
+    } else if (fn === OP_RESTORE) {
+      ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+    } else if (fn === OP_TRANSFORM) {
+      ctm = mulMatrix(ctm, args as unknown as Matrix);
+    } else if (fn === OP_CONSTRUCT_PATH) {
+      const paintOp = args[0] as number;
+      const data = (args[1] as unknown[][])?.[0] as number[] | undefined;
+      if (!data) continue;
+      let cx = 0;
+      let cy = 0;
+      let sx = 0;
+      let sy = 0;
+      let j = 0;
+      const segs: VecLine[] = [];
+      while (j < data.length) {
+        const op = data[j++];
+        if (op === 0) {
+          cx = data[j++];
+          cy = data[j++];
+          sx = cx;
+          sy = cy;
+        } else if (op === 1) {
+          const x = data[j++];
+          const y = data[j++];
+          segs.push({ x1: cx, y1: cy, x2: x, y2: y });
+          cx = x;
+          cy = y;
+        } else if (op === 2) {
+          j += 6;
+          cx = data[j - 2];
+          cy = data[j - 1];
+        } else if (op === 3) {
+          j += 4;
+          cx = data[j - 2];
+          cy = data[j - 1];
+        } else if (op === 4) {
+          segs.push({ x1: cx, y1: cy, x2: sx, y2: sy });
+          cx = sx;
+          cy = sy;
+        } else {
+          break;
+        }
+      }
+      for (const s of segs) {
+        const x1 = ctm[0] * s.x1 + ctm[2] * s.y1 + ctm[4];
+        const y1 = ctm[1] * s.x1 + ctm[3] * s.y1 + ctm[5];
+        const x2 = ctm[0] * s.x2 + ctm[2] * s.y2 + ctm[4];
+        const y2 = ctm[1] * s.x2 + ctm[3] * s.y2 + ctm[5];
+        if (paintOp === PAINT_STROKE) {
+          if (Math.abs(y2 - y1) > 0.6) continue;
+          const len = Math.abs(x2 - x1);
+          if (len < 25 || len > 200) continue;
+          const line: VecLine = {
+            x1: Math.min(x1, x2),
+            y1: (y1 + y2) / 2,
+            x2: Math.max(x1, x2),
+            y2: (y1 + y2) / 2,
+          };
+          if (
+            !lines.some(
+              (l) =>
+                Math.abs(l.y1 - line.y1) < 1 &&
+                Math.abs(l.x1 - line.x1) < 2 &&
+                Math.abs(l.x2 - line.x2) < 2,
+            )
+          ) {
+            lines.push(line);
+          }
+        } else if (paintOp === PAINT_FILL) {
+          fillSegs.push({ x1, y1, x2, y2 });
+        }
+      }
+    }
+  }
+
+  // Drawn checkboxes: small filled rectangles, 9–17pt a side.
+  // Group the small fill segments whose bounding boxes overlap.
+  const small = fillSegs.filter((s) => {
+    const dx = Math.abs(s.x2 - s.x1);
+    const dy = Math.abs(s.y2 - s.y1);
+    return (
+      (dx >= 6 && dx <= 20 && dy < 0.6) || (dy >= 6 && dy <= 20 && dx < 0.6)
+    );
+  });
+  const groups: VecLine[][] = [];
+  for (const s of small) {
+    const g = groups.find((group) =>
+      group.some(
+        (o) =>
+          Math.min(s.x1, s.x2) <= Math.max(o.x1, o.x2) + 2 &&
+          Math.max(s.x1, s.x2) >= Math.min(o.x1, o.x2) - 2 &&
+          Math.min(s.y1, s.y2) <= Math.max(o.y1, o.y2) + 2 &&
+          Math.max(s.y1, s.y2) >= Math.min(o.y1, o.y2) - 2,
+      ),
+    );
+    if (g) g.push(s);
+    else groups.push([s]);
+  }
+  for (const g of groups) {
+    if (g.length < 3) continue;
+    const xs = g.flatMap((s) => [s.x1, s.x2]);
+    const ys = g.flatMap((s) => [s.y1, s.y2]);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const w = Math.max(...xs) - x;
+    const h = Math.max(...ys) - y;
+    if (w >= 9 && w <= 17 && h >= 9 && h <= 17) {
+      if (!squares.some((q) => Math.abs(q.x - x) < 2 && Math.abs(q.y - y) < 2)) {
+        squares.push({ x, y, size: (w + h) / 2 });
+      }
+    }
+  }
+
+  return { lines, squares };
+}
 
 function isTextItem(item: unknown): item is PdfTextItem {
   return (
@@ -175,13 +345,14 @@ function columnEndFor(
  * 1. Underscore runs (`____`): a field at the underscores. The label is
  *    the text before the underscores on the same item, or the item to
  *    its left on the same line, or "Field".
- * 2. A label ending in `:` (e.g. "Name:") with empty space after it on
- *    the same line: a field in that empty space, to the right of the label.
- *    If the next text is in another column, the blank runs to the end
- *    of this column instead of being skipped.
- * 3. Checkboxes: a `☐` / `□` text item, with its label to the right.
- *    Type is "checkbox"; the fill form shows a tick box and the filled
- *    PDF gets an X in the box.
+ * 2. A label ending in `:` (e.g. "Name:") with a blank after it. The
+ *    blank is the DRAWN line on the page: same-row line first (exact
+ *    position and length), then the line below the label (many forms
+ *    put the blank under the label), then the old gap/column fallback
+ *    for forms with no drawn lines.
+ * 3. Checkboxes: a `☐` / `□` text item, or a drawn square, with its
+ *    label to the right. Type is "checkbox"; the fill form shows a
+ *    tick box and the filled PDF gets an X in the box.
  * 4. Group headers (e.g. "Support Areas (Check all that apply):",
  *    "Purpose of Meeting:") are skipped: their options are the
  *    checkboxes below them, not a blank to the right.
@@ -199,6 +370,9 @@ export async function detectFields(
     const viewport = page.getViewport({ scale: 1 });
     const pageWidth = viewport.width;
     const textContent = await page.getTextContent();
+    // Drawn lines/squares on this page — the real blanks.
+    const { lines: vectorLines, squares } = await extractVector(page);
+    const unusedLines = [...vectorLines];
 
     const items: LineItem[] = (textContent.items as unknown[])
       .filter(isTextItem)
@@ -229,6 +403,13 @@ export async function detectFields(
     // Group items into lines: same y (within tolerance) = same line.
     // Lines are top-to-bottom (PDF y grows upwards, so higher y first).
     const lines: LineItem[][] = [];
+    // "Label:" items, collected across the page for the Rule 2 passes.
+    const pageColonLabels: {
+      item: LineItem;
+      label: string;
+      line: LineItem[];
+      index: number;
+    }[] = [];
     for (const item of [...items].sort((a, b) => b.y - a.y || a.x - b.x)) {
       const line = lines.find(
         (candidate) => Math.abs(candidate[0].y - item.y) <= LINE_TOLERANCE,
@@ -291,6 +472,79 @@ export async function detectFields(
       );
     }
 
+    // A text item's full line, including same-line fragments split
+    // off it ("for writi" + "ng" = "for writing"). Only joins a
+    // fragment that starts within 2pt of the previous item's end —
+    // a real word split, not the next column's text.
+    function fullLineText(item: LineItem): string {
+      let text = item.str.trim();
+      let current = item;
+      for (let depth = 0; depth < 2; depth++) {
+        const next = items
+          .filter(
+            (it) =>
+              Math.abs(it.y - current.y) <= LINE_TOLERANCE &&
+              it.x >= current.x + current.width - 2 &&
+              it.x - (current.x + current.width) <= 2 &&
+              it.str.trim().length > 0 &&
+              !it.str.trim().endsWith(":") &&
+              !isHeading(it.str),
+          )
+          .sort((a, b) => a.x - b.x)[0];
+        if (!next) break;
+        const gap = next.x - (current.x + current.width);
+        text += (gap < 2 ? "" : " ") + next.str.trim();
+        current = next;
+      }
+      return text;
+    }
+
+    // The first line(s) of a wrapped label, above this item, e.g.
+    // "Date of Initial Meeting" above "to Determine Eligibility:".
+    // Used to complete the label when a drawn line proves the field
+    // is real (otherwise isContinuation skips it).
+    function wrappedPrefix(labelItem: LineItem): string {
+      const parts: string[] = [];
+      let current = labelItem;
+      for (let depth = 0; depth < 2; depth++) {
+        const above = items.find(
+          (item) =>
+            item.y > current.y + 10 &&
+            item.y < current.y + 14 &&
+            Math.abs(item.x - current.x) < 25 &&
+            item.str.trim().length > 0 &&
+            !item.str.trim().endsWith(":") &&
+            !isHeading(item.str),
+        );
+        if (!above) break;
+        parts.unshift(fullLineText(above));
+        current = above;
+      }
+      return parts.join(" ");
+    }
+
+    // The continuation line(s) of a wrapped option label, below this
+    // item, e.g. "repeated directions" below "Simplified &".
+    function wrappedSuffix(labelItem: LineItem): string {
+      const parts: string[] = [];
+      let current = labelItem;
+      for (let depth = 0; depth < 2; depth++) {
+        const below = items.find(
+          (item) =>
+            item.y < current.y - 10 &&
+            item.y > current.y - 15 &&
+            Math.abs(item.x - current.x) < 25 &&
+            item.str.trim().length > 0 &&
+            !item.str.trim().endsWith(":") &&
+            !isHeading(item.str),
+        );
+        if (!below) break;
+        parts.push(fullLineText(below));
+        current = below;
+      }
+      return parts.join(" ");
+    }
+
     for (const line of lines) {
       line.sort((a, b) => a.x - b.x);
       let lineHasUnderscore = false;
@@ -306,14 +560,19 @@ export async function detectFields(
         if (!next) continue;
         const label = cleanLabel(next.str);
         if (!label || isFragmentLabel(label)) continue;
+        const suffix = wrappedSuffix(next);
+        const fullLabel = suffix ? `${label} ${suffix}` : label;
         found.push({
           id: `p${pageNumber}-b${found.length}`,
           page: pageNumber,
           x: round(item.x),
-          y: round(item.y),
+          // The ☐ glyph spans roughly item.y - 12 to item.y + 3 in
+          // files like this IEP (text origin sits near the glyph's
+          // top), so the box is shifted down to cover the glyph.
+          y: round(item.y - 12),
           width: 12,
-          height: 12,
-          label,
+          height: 15,
+          label: fullLabel,
           type: "checkbox",
           order: 0,
           included: true,
@@ -362,8 +621,12 @@ export async function detectFields(
         }
       }
 
-      // Rule 2: "Label:" with empty space after it. Skip lines that
-      // already had an underscore field — the label there belongs to it.
+      // Rule 2 collects the colon labels on this line; the actual
+      // matching runs after the line loop, in passes over the whole
+      // page (same-row first, then below-label), so a label cannot
+      // steal the line that belongs to the label below it.
+      // Skip lines that already had an underscore field — the label
+      // there belongs to it.
       if (lineHasUnderscore) continue;
       for (let i = 0; i < line.length; i++) {
         const item = line[i];
@@ -372,57 +635,194 @@ export async function detectFields(
         const label = cleanLabel(trimmed.slice(0, -1));
         if (!label || isFragmentLabel(label)) continue;
         if (label.toLowerCase().includes("check all that apply")) continue;
-        if (hasCheckboxBelow(item)) continue;
-        if (hasOptionBelow(item)) continue;
-        if (isContinuation(item)) continue;
+        pageColonLabels.push({ item, label, line, index: i });
+      }
+    }
 
-        const fieldX = item.x + item.width;
-        // Skip blank space items (e.g. the space between a ☐ and its label).
-        const next = line
-          .slice(i + 1)
-          .find((candidate) => candidate.str.trim().length > 0);
-        let fieldWidth: number;
-        if (!next) {
-          // Nothing after the label on this line: the blank runs to
-          // the end of this column.
+    const pushTextField = (
+      item: LineItem,
+      label: string,
+      fieldX: number,
+      fieldY: number,
+      fieldWidth: number,
+    ) => {
+      const prefix = wrappedPrefix(item);
+      const fullLabel = prefix ? `${prefix} ${label}` : label;
+      found.push({
+        id: `p${pageNumber}-c${found.length}`,
+        page: pageNumber,
+        x: round(fieldX),
+        y: round(fieldY),
+        width: round(fieldWidth),
+        height: round(item.height || 12),
+        label: fullLabel,
+        type: "text",
+        order: 0,
+        included: true,
+        required: false,
+        group: group(fieldX, fieldY),
+      });
+    };
+
+    const claimed = new Set<number>();
+
+    // Pass 1 — drawn line on the same row as the label. This is the
+    // real blank: exact position and length. A line here overrides
+    // the header/continuation skips (e.g. "Date of Initial Meeting
+    // to Determine Eligibility:" really does have a blank to its right).
+    for (let k = 0; k < pageColonLabels.length; k++) {
+      const { item, label } = pageColonLabels[k];
+      const fieldX = item.x + item.width;
+      const rowLine = unusedLines.find(
+        (l) =>
+          Math.abs(l.y1 - item.y) <= 4 &&
+          l.x1 >= fieldX - 8 &&
+          l.x1 - fieldX <= 60 &&
+          l.x2 - l.x1 >= 25,
+      );
+      if (!rowLine) continue;
+      unusedLines.splice(unusedLines.indexOf(rowLine), 1);
+      claimed.add(k);
+      pushTextField(item, label, rowLine.x1, rowLine.y1, rowLine.x2 - rowLine.x1);
+    }
+
+    // Pass 2 — drawn line below the label. Many forms put the blank
+    // on the line under the label ("School of Attendance:", "School
+    // Address:", "Contact Number:") — the old to-the-right field
+    // floated in empty space instead.
+    for (let k = 0; k < pageColonLabels.length; k++) {
+      if (claimed.has(k)) continue;
+      const { item, label, line } = pageColonLabels[k];
+      // A checkbox option ("☐ Therapy Services:") has no blank of
+      // its own — its line, if any, would be on its row (pass 1).
+      if (
+        line.some(
+          (candidate) =>
+            candidate.x < item.x &&
+            CHECKBOX_CHARS.has(candidate.str.trim()),
+        )
+      ) {
+        continue;
+      }
+      const belowLine = unusedLines.find(
+        (l) =>
+          l.y1 < item.y - 6 &&
+          l.y1 >= item.y - 24 &&
+          Math.abs(l.x1 - item.x) <= 30 &&
+          l.x2 - l.x1 >= 30,
+      );
+      if (!belowLine) continue;
+      unusedLines.splice(unusedLines.indexOf(belowLine), 1);
+      claimed.add(k);
+      pushTextField(
+        item,
+        label,
+        belowLine.x1,
+        belowLine.y1,
+        belowLine.x2 - belowLine.x1,
+      );
+    }
+
+    // Pass 3 — fallback for forms with no drawn lines: the old
+    // gap/column logic, with the header and continuation skips.
+    for (let k = 0; k < pageColonLabels.length; k++) {
+      if (claimed.has(k)) continue;
+      const { item, label, line, index: i } = pageColonLabels[k];
+      // Same as pass 2: a checkbox option with no drawn line is an
+      // option, not a blank ("☐ Therapy Services:" has no line after it).
+      if (
+        line.some(
+          (candidate) =>
+            candidate.x < item.x &&
+            CHECKBOX_CHARS.has(candidate.str.trim()),
+        )
+      ) {
+        continue;
+      }
+      if (hasCheckboxBelow(item)) continue;
+      if (hasOptionBelow(item)) continue;
+      if (isContinuation(item)) continue;
+
+      const fieldX = item.x + item.width;
+      // Skip blank space items (e.g. the space between a ☐ and its label).
+      const next = line
+        .slice(i + 1)
+        .find((candidate) => candidate.str.trim().length > 0);
+      let fieldWidth: number;
+      if (!next) {
+        // Nothing after the label on this line: the blank runs to
+        // the end of this column.
+        fieldWidth = Math.min(
+          MAX_FIELD_WIDTH,
+          columnEnd(fieldX, item.y) - fieldX,
+        );
+        if (fieldWidth < 40) continue;
+      } else {
+        const gap = next.x - fieldX;
+        if (gap < MIN_GAP_AFTER_LABEL) continue;
+        if (gap > MAX_GAP_AFTER_LABEL) {
+          // Next text is in another column: the blank runs to the
+          // end of this column instead (e.g. "Sex:", "Contact Number:").
           fieldWidth = Math.min(
             MAX_FIELD_WIDTH,
             columnEnd(fieldX, item.y) - fieldX,
           );
           if (fieldWidth < 40) continue;
         } else {
-          const gap = next.x - fieldX;
-          if (gap < MIN_GAP_AFTER_LABEL) continue;
-          if (gap > MAX_GAP_AFTER_LABEL) {
-            // Next text is in another column: the blank runs to the
-            // end of this column instead (e.g. "Sex:", "Contact Number:").
-            fieldWidth = Math.min(
-              MAX_FIELD_WIDTH,
-              columnEnd(fieldX, item.y) - fieldX,
-            );
-            if (fieldWidth < 40) continue;
-          } else {
-            fieldWidth = Math.min(MAX_FIELD_WIDTH, gap);
-          }
+          fieldWidth = Math.min(MAX_FIELD_WIDTH, gap);
         }
-        // Off the page — a wrapped label's second line, not a real blank.
-        if (fieldX + fieldWidth > pageWidth - 10) continue;
-
-        found.push({
-          id: `p${pageNumber}-c${found.length}`,
-          page: pageNumber,
-          x: round(fieldX),
-          y: round(item.y),
-          width: round(fieldWidth),
-          height: round(item.height || 12),
-          label,
-          type: "text",
-          order: 0,
-          included: true,
-          required: false,
-          group: group(fieldX, item.y),
-        });
       }
+      // Off the page — a wrapped label's second line, not a real blank.
+      if (fieldX + fieldWidth > pageWidth - 10) continue;
+
+      pushTextField(item, label, fieldX, item.y, fieldWidth);
+    }
+
+    // Rule 3b: drawn checkboxes (filled squares). The label is the
+    // text just to the right on the same row — this catches the
+    // Meeting checkboxes, which are vector squares, not text.
+    for (const sq of squares) {
+      const cy = sq.y + sq.size / 2;
+      const next = items
+        .filter(
+          (it) =>
+            it.str.trim().length > 0 &&
+            it.x >= sq.x + sq.size - 2 &&
+            it.x - (sq.x + sq.size) <= 40 &&
+            Math.abs(it.y - cy) <= 7,
+        )
+        .sort((a, b) => a.x - b.x)[0];
+      if (!next) continue;
+      const label = cleanLabel(next.str);
+      if (!label || isFragmentLabel(label)) continue;
+      if (next.str.trim().endsWith(":")) continue;
+      if (isHeading(next.str)) continue;
+      if (
+        found.some(
+          (f) =>
+            f.type === "checkbox" &&
+            Math.abs(f.x - sq.x) < 5 &&
+            Math.abs(f.y - sq.y) < 8,
+        )
+      ) {
+        continue;
+      }
+      const suffix = wrappedSuffix(next);
+      const fullLabel = suffix ? `${label} ${suffix}` : label;
+      found.push({
+        id: `p${pageNumber}-s${found.length}`,
+        page: pageNumber,
+        x: round(sq.x),
+        y: round(sq.y),
+        width: round(sq.size),
+        height: round(sq.size),
+        label: fullLabel,
+        type: "checkbox",
+        order: 0,
+        included: true,
+        required: false,
+        group: group(sq.x, cy),
+      });
     }
   }
 
