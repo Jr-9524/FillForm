@@ -30,6 +30,10 @@ type PdfPageProps = {
    * draggable highlight boxes (Fill mode: what you type is what
    * downloads). */
   showAnswers?: boolean;
+  /** In Fill mode, the field the filler is currently answering:
+   * its box gets a visible outline on the preview, and the preview
+   * scrolls to it. */
+  highlightFieldId?: string | null;
   /** Zoom factor for the preview (1 = fit the column). The parent
    * owns it so it survives paging. */
   zoom?: number;
@@ -78,6 +82,7 @@ export function PdfPage({
   onFieldUpdate,
   answers = {},
   showAnswers = false,
+  highlightFieldId = null,
   zoom = 1,
   onZoomChange,
   showAllPlaceholders = false,
@@ -700,6 +705,43 @@ export function PdfPage({
                 </div>
               );
             })}
+          {pageSize.width > 0 &&
+            showAnswers &&
+            highlightFieldId &&
+            (() => {
+              const field = pageFields.find(
+                (f) => f.id === highlightFieldId,
+              );
+              if (!field || !field.included) return null;
+              // The active field's outline, drawn from the same box
+              // geometry the answers use, so it sits exactly on the
+              // blank being filled.
+              const box = displayBox(field);
+              const left = (box.left / pageSize.width) * 100;
+              const top = (box.top / pageSize.height) * 100;
+              const width = (box.width / pageSize.width) * 100;
+              const height = (box.height / pageSize.height) * 100;
+              return (
+                <div
+                  key={`highlight-${field.id}`}
+                  aria-hidden
+                  ref={(el) => {
+                    if (el)
+                      el.scrollIntoView({
+                        block: "nearest",
+                        behavior: "smooth",
+                      });
+                  }}
+                  className="pointer-events-none absolute z-10 rounded-sm border-2 border-blue-600"
+                  style={{
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    width: `${Math.max(width, 1)}%`,
+                    height: `${height}%`,
+                  }}
+                />
+              );
+            })()}
         </div>
       )}
       <figcaption className="mt-2 text-center text-sm text-gray-500">

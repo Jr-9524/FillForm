@@ -23,7 +23,8 @@ type FillFormProps = {
  * Slice 3 + live preview: the filler answers top to bottom, and the
  * page beside the form shows each answer on the blank as it is typed
  * — the same position and size the downloaded PDF uses, so what you
- * see is what you get. The preview follows the field being filled.
+ * see is what you get. The preview follows the field being filled,
+ * and the field being filled gets an outline on the preview.
  */
 export function FillForm({
   fields,
@@ -47,6 +48,9 @@ export function FillForm({
   // follows the preview instead of one long 136-field scroll. "All
   // pages" shows everything, in document order.
   const [showAllPages, setShowAllPages] = useState(false)
+  // The field the filler is currently answering — its box gets an
+  // outline on the preview, and the preview scrolls to it.
+  const [activeFieldId, setActiveFieldId] = useState<string | null>(null)
   const visibleFields = showAllPages
     ? fields
     : fields.filter((field) => field.page === previewPage)
@@ -67,6 +71,29 @@ export function FillForm({
   // "Check answers" counts every included field instead, so the
   // check is never vacuous (see App.handleCheckAnswers).
   const hasRequired = fields.some((field) => field.required)
+  // How many times each label appears in the visible list — a
+  // repeated label gets its section shown next to it.
+  const labelCounts = new Map<string, number>()
+  for (const field of visibleFields) {
+    labelCounts.set(field.label, (labelCounts.get(field.label) ?? 0) + 1)
+  }
+  // Group the visible fields under their section headings, in
+  // document order. In "All pages" mode the same section name on
+  // different pages stays separate ("Page N · Section").
+  const sections: { key: string; heading: string; fields: DetectedField[] }[] =
+    []
+  for (const field of visibleFields) {
+    const key = `${field.page}|${field.group || 'General'}`
+    const heading = showAllPages
+      ? `Page ${field.page} · ${field.group || 'General'}`
+      : field.group || 'General'
+    const last = sections[sections.length - 1]
+    if (last && last.key === key) {
+      last.fields.push(field)
+    } else {
+      sections.push({ key, heading, fields: [field] })
+    }
+  }
 
   if (fields.length === 0) {
     return (
@@ -81,7 +108,7 @@ export function FillForm({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:items-start">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
       {pdf && (
         <div className="order-2 space-y-4 lg:order-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -123,6 +150,7 @@ export function FillForm({
             fields={fields}
             answers={answers}
             showAnswers
+            highlightFieldId={activeFieldId}
             zoom={previewZoom}
             onZoomChange={setPreviewZoom}
           />
@@ -139,18 +167,34 @@ export function FillForm({
         onSubmit()
       }}
     >
-      <p className="text-sm text-gray-600">
-        {filledCount} of {fields.length} filled
-      </p>
-
-      <p className="text-sm text-gray-600">
-        {filledCount} of {fields.length} filled
-        {!hasRequired && (
-          <span className="text-gray-500">
-            {" "}· no fields are marked Required, so all fields count
-          </span>
-        )}
-      </p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">
+          {filledCount} of {fields.length} answered
+        </p>
+        <p className="text-xs text-gray-600">
+          {showAllPages ? 'All pages' : `Page ${previewPage}`}
+        </p>
+      </div>
+      <div
+        className="mt-2 h-2 overflow-hidden rounded-full bg-gray-200"
+        role="progressbar"
+        aria-valuenow={filledCount}
+        aria-valuemin={0}
+        aria-valuemax={fields.length}
+        aria-label={`${filledCount} of ${fields.length} answered`}
+      >
+        <div
+          className="h-full rounded-full bg-blue-700 transition-all"
+          style={{
+            width: `${fields.length > 0 ? (filledCount / fields.length) * 100 : 0}%`,
+          }}
+        />
+      </div>
+      {!hasRequired && (
+        <p className="mt-2 text-xs text-gray-600">
+          No fields are marked Required, so all fields count.
+        </p>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Which fields to show">
         <button
@@ -163,7 +207,7 @@ export function FillForm({
               : "border border-gray-300 bg-white hover:bg-gray-100"
           }`}
         >
-          Page {previewPage} ({pageFieldCount})
+          This page ({pageFieldCount})
         </button>
         <button
           type="button"
@@ -179,72 +223,131 @@ export function FillForm({
         </button>
       </div>
 
-      <div className="mt-5 space-y-5">
-        {visibleFields.map((field) => {
-          const isMissing = missingIds.includes(field.id)
-          const value = answers[field.id] ?? ''
-          const inputId = `fill-${field.id}`
-          const commonClass = `w-full rounded border px-3 py-2 text-sm ${
-            isMissing
-              ? 'border-red-500'
-              : 'border-gray-300'
-          }`
-          return (
-            <div key={field.id}>
-              <label htmlFor={inputId} className="block text-sm font-medium">
-                {field.order}. {field.label}
-                {field.required && (
-                  <span className="text-red-600"> *</span>
-                )}
-                {showAllPages && (
-                  <span className="ml-2 font-normal text-gray-500">
-                    Page {field.page}
-                  </span>
-                )}
-              </label>
-              {field.type === 'checkbox' ? (
-                <input
-                  id={inputId}
-                  type="checkbox"
-                  checked={value === 'true'}
-                  onChange={(e) =>
-                    onAnswerChange(field.id, e.target.checked ? 'true' : '')
-                  }
-                  onFocus={() => setPreviewPage(field.page)}
-                  className="h-5 w-5 accent-blue-700"
-                />
-              ) : field.type === 'textarea' ? (
-                <textarea
-                  id={inputId}
-                  value={value}
-                  rows={Math.max(
-                    3,
-                    Math.min(10, Math.round(field.height / 24)),
-                  )}
-                  onChange={(e) => onAnswerChange(field.id, e.target.value)}
-                  onFocus={() => setPreviewPage(field.page)}
-                  className={commonClass}
-                />
-              ) : (
-                <input
-                  id={inputId}
-                  type={field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
-                  value={value}
-                  onChange={(e) => onAnswerChange(field.id, e.target.value)}
-                  onFocus={() => setPreviewPage(field.page)}
-                  className={commonClass}
-                />
-              )}
-              {isMissing && (
-                <p className="mt-1 text-xs text-red-600">
-                  {field.required
-                    ? 'This field is required.'
-                    : 'This field is empty — fill it in before downloading.'}
-                </p>
-              )}
+      {/* Bottom padding keeps the sticky footer from covering the
+          last field when the list is scrolled to the end. */}
+      <div className="mt-5 space-y-6 pb-32">
+        {sections.map((section) => (
+          <fieldset key={section.key}>
+            <legend className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              {section.heading}
+            </legend>
+            <div className="space-y-5">
+              {section.fields.map((field) => {
+                const isMissing = missingIds.includes(field.id)
+                const value = answers[field.id] ?? ''
+                const inputId = `fill-${field.id}`
+                const showSection =
+                  (labelCounts.get(field.label) ?? 0) > 1 && field.group
+                const commonClass = `w-full rounded border px-3 py-2 text-sm ${
+                  isMissing ? 'border-red-500' : 'border-gray-300'
+                }`
+                const focusField = () => {
+                  setActiveFieldId(field.id)
+                  setPreviewPage(field.page)
+                }
+                if (field.type === 'checkbox') {
+                  return (
+                    <div key={field.id}>
+                      <label
+                        htmlFor={inputId}
+                        className="flex cursor-pointer items-center gap-2 text-sm font-medium"
+                      >
+                        <input
+                          id={inputId}
+                          type="checkbox"
+                          checked={value === 'true'}
+                          onChange={(e) =>
+                            onAnswerChange(
+                              field.id,
+                              e.target.checked ? 'true' : '',
+                            )
+                          }
+                          onFocus={focusField}
+                          className="h-5 w-5 shrink-0 accent-blue-700"
+                        />
+                        <span>
+                          {field.order}. {field.label}
+                          {field.required && (
+                            <span className="text-red-600"> *</span>
+                          )}
+                          {showSection && (
+                            <span className="ml-2 font-normal text-gray-500">
+                              {field.group}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                      {isMissing && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {field.required
+                            ? 'This field is required.'
+                            : 'This field is empty — fill it in before downloading.'}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+                return (
+                  <div key={field.id}>
+                    <label
+                      htmlFor={inputId}
+                      className="block text-sm font-medium"
+                    >
+                      {field.order}. {field.label}
+                      {field.required && (
+                        <span className="text-red-600"> *</span>
+                      )}
+                      {showSection && (
+                        <span className="ml-2 font-normal text-gray-500">
+                          {field.group}
+                        </span>
+                      )}
+                    </label>
+                    {field.type === 'textarea' ? (
+                      <textarea
+                        id={inputId}
+                        value={value}
+                        rows={Math.max(
+                          3,
+                          Math.min(10, Math.round(field.height / 24)),
+                        )}
+                        onChange={(e) =>
+                          onAnswerChange(field.id, e.target.value)
+                        }
+                        onFocus={focusField}
+                        className={commonClass}
+                      />
+                    ) : (
+                      <input
+                        id={inputId}
+                        type={
+                          field.type === 'date'
+                            ? 'date'
+                            : field.type === 'number'
+                              ? 'number'
+                              : 'text'
+                        }
+                        value={value}
+                        onChange={(e) =>
+                          onAnswerChange(field.id, e.target.value)
+                        }
+                        onFocus={focusField}
+                        className={commonClass}
+                      />
+                    )}
+                    {isMissing && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {field.required
+                          ? 'This field is required.'
+                          : 'This field is empty — fill it in before downloading.'}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
+          </fieldset>
+        ))}
       </div>
 
       {/* Sticky action bar: the buttons and the check result stay
@@ -262,7 +365,7 @@ export function FillForm({
 
         {submitted && missingIds.length === 0 && (
           <p role="status" className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
-            {filledCount} of {fields.length} filled.
+            {filledCount} of {fields.length} answered.
             {emptyCount > 0
               ? ` ${emptyCount} ${emptyCount === 1 ? 'field is' : 'fields are'} still empty, but none ${emptyCount === 1 ? 'is' : 'are'} required — you can download or print now.`
               : ' You can download or print the filled PDF now.'}
@@ -270,20 +373,17 @@ export function FillForm({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-auto text-sm text-gray-600">
-            {filledCount} of {fields.length} filled
-          </span>
           <button
             type="submit"
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
           >
-            Check answers
+            Review answers
           </button>
           <button
             type="button"
             onClick={onDownload}
             disabled={!canGenerate || generating}
-            className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-40"
+            className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {generating ? 'Generating…' : 'Download filled PDF'}
           </button>
@@ -291,13 +391,21 @@ export function FillForm({
             type="button"
             onClick={onPrint}
             disabled={!canGenerate || generating}
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Print filled PDF
           </button>
           <button
             type="button"
-            onClick={onClearAnswers}
+            onClick={() => {
+              if (
+                window.confirm(
+                  'Clear all answers? The fields stay — only what you typed is removed.',
+                )
+              ) {
+                onClearAnswers()
+              }
+            }}
             className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
           >
             Clear answers
@@ -306,7 +414,7 @@ export function FillForm({
         <p className="mt-2 text-xs text-gray-600">
           {canGenerate
             ? 'Download gives you the original PDF with your answers on the blanks. Print opens it in a new tab — print from there (Ctrl+P).'
-            : 'Fill the form and click “Check answers” first — download and print unlock once the fields that count are filled.'}
+            : 'Fill the form and click “Review answers” first — download and print unlock once the fields that count are filled.'}
         </p>
       </div>
     </form>
