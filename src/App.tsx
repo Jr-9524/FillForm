@@ -567,7 +567,7 @@ function App() {
                               ? "bg-green-600 text-white"
                               : step.current
                                 ? "bg-blue-700 text-white"
-                                : "bg-gray-200 text-gray-500"
+                                : "bg-gray-200 text-gray-600"
                           }`}
                         >
                           {step.done ? "✓" : i + 1}
@@ -578,7 +578,7 @@ function App() {
                               ? "font-medium text-gray-900"
                               : step.done
                                 ? "text-gray-600"
-                                : "text-gray-400"
+                                : "text-gray-600"
                           }`}
                         >
                           {step.label}
@@ -589,10 +589,10 @@ function App() {
                         className="flex items-center gap-1.5 px-1.5 py-1"
                         aria-disabled="true"
                       >
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-500">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
                           {i + 1}
                         </span>
-                        <span className="hidden text-sm text-gray-400 md:inline">
+                        <span className="hidden text-sm text-gray-600 md:inline">
                           {step.label}
                         </span>
                       </span>
@@ -695,12 +695,12 @@ function App() {
           </p>
         )}
 
-        {loading && <p className="text-sm text-gray-500">Loading PDF…</p>}
+        {loading && <p className="text-sm text-gray-600">Loading PDF…</p>}
 
         {!pdf && !loading && (
           <div className="rounded-lg border-2 border-dashed border-gray-300 bg-white px-6 py-16 text-center">
             <p className="text-lg font-medium">No PDF uploaded yet</p>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-600">
               Click “Upload PDF” above and choose a PDF file. Its pages will
               appear here, one by one.
             </p>
@@ -728,7 +728,7 @@ function App() {
             ) : (
               <div className="grid gap-4 lg:grid-cols-[112px_minmax(0,1fr)_340px] lg:items-start">
                 <div className="hidden lg:block">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
                     Pages
                   </p>
                   <div className="space-y-2">

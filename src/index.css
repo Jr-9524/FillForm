@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* Slice 6 Step 5 — accessibility baseline:
+ * - Every button is at least 40px tall, a comfortable tap target.
+ * - Keyboard focus is always visible (a blue ring), so tabbing
+ *   through the app shows exactly where you are. */
+button {
+  min-height: 40px;
+}
+
+:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

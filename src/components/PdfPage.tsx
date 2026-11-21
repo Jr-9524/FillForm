@@ -423,7 +423,7 @@ export function PdfPage({
     <div>
       {onZoomChange && (
         <div className="mb-2 flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-500">Zoom</span>
+          <span className="text-xs font-medium text-gray-600">Zoom</span>
           <button
             type="button"
             onClick={() => setZoomLevel(zoomIndex - 1)}
@@ -554,7 +554,7 @@ export function PdfPage({
                         hoveredFieldId === field.id) && (
                       <span
                         aria-hidden
-                        className="pointer-events-none absolute inset-0 overflow-hidden text-gray-500"
+                        className="pointer-events-none absolute inset-0 overflow-hidden text-gray-600"
                         style={{
                           fontSize: `${placeholderSize * scale}px`,
                           lineHeight:
@@ -744,7 +744,7 @@ export function PdfPage({
             })()}
         </div>
       )}
-      <figcaption className="mt-2 text-center text-sm text-gray-500">
+      <figcaption className="mt-2 text-center text-sm text-gray-600">
         Page {pageNumber} of {pageCount}
       </figcaption>
     </figure>

@@ -140,7 +140,7 @@ export function FieldPanel({
                 {" · "}
                 {fields.length} total
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-600">
                 Include in form = the field appears in the Fill form.
                 Required = the filler must answer it before downloading.
               </p>
@@ -173,7 +173,7 @@ export function FieldPanel({
               </div>
               <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
                 {visibleFields.length === 0 ? (
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-gray-600">
                     {filter === "review"
                       ? "No fields need review on this page."
                       : "No excluded fields on this page."}
@@ -203,7 +203,7 @@ export function FieldPanel({
                                   : "border-gray-200 opacity-50"
                               }`}
                             >
-                              <span className="shrink-0 text-sm font-medium text-gray-500">
+                              <span className="shrink-0 text-sm font-medium text-gray-600">
                                 {field.order}.
                               </span>
                               <span className="min-w-0 flex-1">
@@ -215,7 +215,7 @@ export function FieldPanel({
                                   {field.label}
                                 </span>
                                 {showSection && field.group && (
-                                  <span className="block truncate text-xs text-gray-500">
+                                  <span className="block truncate text-xs text-gray-600">
                                     {field.group}
                                   </span>
                                 )}
@@ -262,7 +262,7 @@ export function FieldPanel({
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-500">
+                            <span className="text-sm font-medium text-gray-600">
                               {field.order}.
                             </span>
                             <label
@@ -287,7 +287,7 @@ export function FieldPanel({
                             {field.group && (
                               <span
                                 title={`Section: ${field.group}`}
-                                className="max-w-28 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500"
+                                className="max-w-28 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-600"
                               >
                                 {field.group}
                               </span>
@@ -354,7 +354,7 @@ export function FieldPanel({
                           </div>
                           {field.type !== "checkbox" && (
                             <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-medium text-gray-500">
+                              <span className="text-xs font-medium text-gray-600">
                                 Font
                               </span>
                               <label
@@ -477,7 +477,7 @@ export function FieldPanel({
                                 />
                               </label>
                             ))}
-                            <span className="text-gray-500">
+                            <span className="text-gray-600">
                               drag on page, or use arrow keys
                             </span>
                           </div>
@@ -528,7 +528,7 @@ export function FieldPanel({
               </div>
             </>
           ) : (
-            <p className="mt-2 text-sm text-gray-500">
+            <p className="mt-2 text-sm text-gray-600">
               No fields on this page — turn on “+ Add field” and click on
               the page to add one.
             </p>

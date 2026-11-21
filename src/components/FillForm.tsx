@@ -99,7 +99,7 @@ export function FillForm({
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-6 text-center">
         <p className="text-lg font-medium">No fields to fill</p>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-gray-600">
           All fields are excluded, or none were detected. Go back to Setup
           and include at least one field.
         </p>
@@ -228,7 +228,7 @@ export function FillForm({
       <div className="mt-5 space-y-6 pb-32">
         {sections.map((section) => (
           <fieldset key={section.key}>
-            <legend className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <legend className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-600">
               {section.heading}
             </legend>
             <div className="space-y-5">
@@ -271,7 +271,7 @@ export function FillForm({
                             <span className="text-red-600"> *</span>
                           )}
                           {showSection && (
-                            <span className="ml-2 font-normal text-gray-500">
+                            <span className="ml-2 font-normal text-gray-600">
                               {field.group}
                             </span>
                           )}
@@ -298,7 +298,7 @@ export function FillForm({
                         <span className="text-red-600"> *</span>
                       )}
                       {showSection && (
-                        <span className="ml-2 font-normal text-gray-500">
+                        <span className="ml-2 font-normal text-gray-600">
                           {field.group}
                         </span>
                       )}
