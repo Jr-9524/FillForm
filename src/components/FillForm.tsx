@@ -1,4 +1,7 @@
+import { useState } from 'react'
+import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { DetectedField } from '../lib/fields'
+import { PdfPage } from './PdfPage'
 
 type FillFormProps = {
   fields: DetectedField[]
@@ -7,6 +10,8 @@ type FillFormProps = {
   submitted: boolean
   generating: boolean
   canGenerate: boolean
+  pdf: PDFDocumentProxy | null
+  pageCount: number
   onAnswerChange: (id: string, value: string) => void
   onSubmit: () => void
   onClearAnswers: () => void
@@ -15,9 +20,10 @@ type FillFormProps = {
 }
 
 /**
- * Slice 3: clean fill form, in document order.
- * Only included fields are shown. No PDF preview, no editor here —
- * the filler just answers, top to bottom.
+ * Slice 3 + live preview: the filler answers top to bottom, and the
+ * page beside the form shows each answer on the blank as it is typed
+ * — the same position and size the downloaded PDF uses, so what you
+ * see is what you get. The preview follows the field being filled.
  */
 export function FillForm({
   fields,
@@ -26,12 +32,15 @@ export function FillForm({
   submitted,
   generating,
   canGenerate,
+  pdf,
+  pageCount,
   onAnswerChange,
   onSubmit,
   onClearAnswers,
   onDownload,
   onPrint,
 }: FillFormProps) {
+  const [previewPage, setPreviewPage] = useState(1)
   const filledCount = fields.filter(
     (field) => (answers[field.id] ?? '').trim() !== '',
   ).length
@@ -49,8 +58,57 @@ export function FillForm({
   }
 
   return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+      {pdf && (
+        <div className="order-2 space-y-4 lg:order-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+              disabled={previewPage <= 1}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-100 disabled:opacity-40"
+            >
+              ← Previous
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setPreviewPage((p) => Math.min(pageCount, p + 1))
+              }
+              disabled={previewPage >= pageCount}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-100 disabled:opacity-40"
+            >
+              Next →
+            </button>
+            <select
+              value={previewPage}
+              onChange={(e) => setPreviewPage(Number(e.target.value))}
+              aria-label="Preview page"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {Array.from({ length: pageCount }, (_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  Page {i + 1} of {pageCount}
+                </option>
+              ))}
+            </select>
+          </div>
+          <PdfPage
+            pdf={pdf}
+            pageNumber={previewPage}
+            pageCount={pageCount}
+            fields={fields}
+            answers={answers}
+            showAnswers
+          />
+          <p className="text-xs text-gray-500">
+            Live preview — your answers appear on the page as you type,
+            exactly where the download puts them.
+          </p>
+        </div>
+      )}
     <form
-      className="mx-auto max-w-2xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+      className="order-1 rounded-lg border border-gray-200 bg-white p-6 shadow-sm lg:order-2"
       onSubmit={(e) => {
         e.preventDefault()
         onSubmit()
@@ -102,6 +160,7 @@ export function FillForm({
                   onChange={(e) =>
                     onAnswerChange(field.id, e.target.checked ? 'true' : '')
                   }
+                  onFocus={() => setPreviewPage(field.page)}
                   className="h-5 w-5 accent-blue-700"
                 />
               ) : field.type === 'textarea' ? (
@@ -113,6 +172,7 @@ export function FillForm({
                     Math.min(10, Math.round(field.height / 24)),
                   )}
                   onChange={(e) => onAnswerChange(field.id, e.target.value)}
+                  onFocus={() => setPreviewPage(field.page)}
                   className={commonClass}
                 />
               ) : (
@@ -121,6 +181,7 @@ export function FillForm({
                   type={field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
                   value={value}
                   onChange={(e) => onAnswerChange(field.id, e.target.value)}
+                  onFocus={() => setPreviewPage(field.page)}
                   className={commonClass}
                 />
               )}
@@ -171,5 +232,6 @@ export function FillForm({
           : 'Fill the form and click “Check answers” first — download and print unlock once all required fields are filled.'}
       </p>
     </form>
+    </div>
   )
 }

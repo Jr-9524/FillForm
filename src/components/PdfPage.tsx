@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { DetectedField } from "../lib/fields";
+import {
+  fitSingleLineSize,
+  fitTextarea,
+} from "../lib/fitText";
 
 type PdfPageProps = {
   pdf: PDFDocumentProxy;
@@ -16,6 +20,12 @@ type PdfPageProps = {
   onFieldSelect?: (id: string) => void;
   /** Called live while a box is dragged or resized. */
   onFieldUpdate?: (id: string, patch: Partial<DetectedField>) => void;
+  /** Current answers by field id — shown live on the page. */
+  answers?: Record<string, string>;
+  /** When true, render the answers on the page instead of the
+   * draggable highlight boxes (Fill mode: what you type is what
+   * downloads). */
+  showAnswers?: boolean;
 };
 
 const RENDER_SCALE = 1.5;
@@ -33,12 +43,27 @@ export function PdfPage({
   selectedFieldId = null,
   onFieldSelect,
   onFieldUpdate,
+  answers = {},
+  showAnswers = false,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageSizeRef = useRef({ width: 0, height: 0 });
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
+  // Displayed width of the page (CSS px) — the answer text is sized
+  // from it, so it stays in scale with the canvas at any width.
+  const [displayWidth, setDisplayWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setDisplayWidth(el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   // A drag that just ended — the click that follows it must not add
   // a field on the canvas.
   const dragEndAtRef = useRef(0);
@@ -99,10 +124,12 @@ export function PdfPage({
   }, [pdf, pageNumber]);
 
   // The box as drawn, in PDF points from the page's top edge.
-  // Detection y is the blank line itself, so a text box straddles it
-  // (5pt below to height-5 above); a checkbox box is the square
-  // itself; a textarea's y is the TOP of its box, so the box is
-  // drawn full-size.
+  // Detection y is the blank line itself, so a text box straddles
+  // it — 3pt below the line (descenders reach ~2.9pt at 12pt) and
+  // the rest above, so the downloaded answer (cap top ~8.4pt above
+  // the line) sits inside the box instead of poking out of its top;
+  // a checkbox box is the square itself; a textarea's y is the TOP
+  // of its box, so the box is drawn full-size.
   function displayBox(field: DetectedField): DisplayBox {
     const ph = pageSizeRef.current.height;
     if (field.type === "textarea") {
@@ -118,7 +145,7 @@ export function PdfPage({
     }
     return {
       left: field.x,
-      top: ph - field.y - (field.height - 5),
+      top: ph - field.y - (field.height - 3),
       width: field.width,
       height: field.height,
     };
@@ -148,7 +175,7 @@ export function PdfPage({
     }
     return {
       x,
-      y: Math.round((ph - box.top - (height - 5)) * 10) / 10,
+      y: Math.round((ph - box.top - (height - 3)) * 10) / 10,
       width,
       height,
     };
@@ -295,6 +322,7 @@ export function PdfPage({
             onClick={handleClick}
           />
           {pageSize.width > 0 &&
+            !showAnswers &&
             pageFields.map((field) => {
               const isSelected = field.id === selectedFieldId;
               // Percentages, so the box stays aligned if the canvas
@@ -360,6 +388,86 @@ export function PdfPage({
                         />
                       );
                     })}
+                </div>
+              );
+            })}
+          {pageSize.width > 0 &&
+            showAnswers &&
+            displayWidth > 0 &&
+            pageFields.map((field) => {
+              if (!field.included) return null;
+              const text = (answers[field.id] ?? "").trim();
+              if (!text) return null;
+              // CSS px per PDF point at the current display size.
+              const scale = displayWidth / pageSize.width;
+              const ph = pageSize.height;
+              const pw = pageSize.width;
+              if (field.type === "checkbox") {
+                if (!["true", "checked", "yes", "x"].includes(text.toLowerCase()))
+                  return null;
+                return (
+                  <div
+                    key={field.id}
+                    aria-hidden
+                    className="pointer-events-none absolute flex items-center justify-center font-bold text-black"
+                    style={{
+                      left: `${(field.x / pw) * 100}%`,
+                      top: `${((ph - field.y - field.height) / ph) * 100}%`,
+                      width: `${(field.width / pw) * 100}%`,
+                      height: `${(field.height / ph) * 100}%`,
+                      fontSize: `${10 * scale}px`,
+                      fontFamily: "Helvetica, Arial, sans-serif",
+                    }}
+                  >
+                    X
+                  </div>
+                );
+              }
+              if (field.type === "textarea") {
+                const { size, lines } = fitTextarea(
+                  text,
+                  field.width - 8,
+                  field.height,
+                );
+                return (
+                  <div
+                    key={field.id}
+                    aria-hidden
+                    className="pointer-events-none absolute overflow-hidden text-black"
+                    style={{
+                      left: `${((field.x + 4) / pw) * 100}%`,
+                      top: `${((ph - field.y) / ph) * 100}%`,
+                      width: `${((field.width - 8) / pw) * 100}%`,
+                      height: `${(field.height / ph) * 100}%`,
+                      fontSize: `${size * scale}px`,
+                      lineHeight: 1.25,
+                      fontFamily: "Helvetica, Arial, sans-serif",
+                    }}
+                  >
+                    {lines.map((line, i) => (
+                      <span key={i}>
+                        {line}
+                        {i < lines.length - 1 && <br />}
+                      </span>
+                    ))}
+                  </div>
+                );
+              }
+              const size = fitSingleLineSize(text, field.width);
+              return (
+                <div
+                  key={field.id}
+                  aria-hidden
+                  className="pointer-events-none absolute overflow-hidden whitespace-nowrap text-black"
+                  style={{
+                    left: `${((field.x + 4) / pw) * 100}%`,
+                    top: `${((ph - field.y - size) / ph) * 100}%`,
+                    fontSize: `${size * scale}px`,
+                    lineHeight: 1,
+                    fontFamily: "Helvetica, Arial, sans-serif",
+                  }}
+                >
+                  {text}
                 </div>
               );
             })}

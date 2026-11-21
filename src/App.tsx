@@ -411,6 +411,8 @@ function App() {
                 submitted={submitted}
                 generating={generating}
                 canGenerate={submitted && missingIds.length === 0}
+                pdf={pdf}
+                pageCount={pageCount}
                 onAnswerChange={handleAnswerChange}
                 onSubmit={handleCheckAnswers}
                 onClearAnswers={handleClearAnswers}

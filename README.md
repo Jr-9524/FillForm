@@ -154,6 +154,19 @@ labels, or writing lines — the "Additional Modifications" box on
 page 7 is one now. A tall grid (the page-9 signature table) is
 still not claimed. IEP is 136 fields (was 120).
 
+## Live preview in Fill mode (2026-11-21)
+
+The Fill view now shows the page beside the form, and every answer
+appears on its blank as you type — same position, size, and
+wrapping the downloaded PDF uses (12pt shrinking to 7pt to fit,
+word-wrapped textareas, an X in checked boxes), so what you see is
+what you get. The preview follows the field you are filling: click
+into an answer and the page flips to that field's page. Same round:
+the Setup highlight box for a text field now hugs the answer
+(3pt below the line, the rest above) instead of sitting 5pt below
+it, so the downloaded text no longer rides at the top of the box
+and pokes out of it.
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
