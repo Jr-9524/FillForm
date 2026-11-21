@@ -230,8 +230,11 @@ async function extractVector(
     const hh = yT - yB;
     // Writing boxes can be short (the Present Levels boxes are
     // 23–24pt tall); the 18pt floor keeps stroked checkbox outlines
-    // (~14pt) out.
-    if (w < 60 || hh < 18 || hh > 200) continue;
+    // (~14pt) out. The 300pt ceiling still excludes section frames
+    // (~390–444pt); tall boxes between 200–300pt are gated in the
+    // textarea pass (only claimed when empty — a checkbox column is
+    // not a writing box).
+    if (w < 60 || hh < 18 || hh > 300) continue;
     const rect: VecRect = { x1, y1: yB, x2, y2: yT };
     if (
       !rects.some(
@@ -581,6 +584,34 @@ export async function detectFields(
     // off it ("for writi" + "ng" = "for writing"). Only joins a
     // fragment that starts within 2pt of the previous item's end —
     // a real word split, not the next column's text.
+    // Join two label parts: a hyphenated split ("multiple-" +
+    // "choice", "text-to-" + "speech") joins without a space;
+    // anything else joins with one.
+    function joinLabelParts(a: string, b: string): string {
+      return a.endsWith("-") ? a + b : `${a} ${b}`;
+    }
+
+    // True when this text item is an option label — a drawn square
+    // (or ☐) sits just to its left on the same row. Such an item
+    // starts a new option, so it is never a continuation of the
+    // label above it and never claims a writing box.
+    function isOptionLabel(labelItem: LineItem): boolean {
+      const lineOf = lines.find((l) => l.includes(labelItem));
+      if (
+        lineOf?.some(
+          (c) => c.x < labelItem.x && CHECKBOX_CHARS.has(c.str.trim()),
+        )
+      ) {
+        return true;
+      }
+      return squares.some(
+        (sq) =>
+          Math.abs(sq.y + sq.size / 2 - labelItem.y) <= 7 &&
+          labelItem.x - (sq.x + sq.size) >= -2 &&
+          labelItem.x - (sq.x + sq.size) <= 40,
+      );
+    }
+
     function fullLineText(item: LineItem): string {
       let text = item.str.trim();
       let current = item;
@@ -590,7 +621,9 @@ export async function detectFields(
             (it) =>
               Math.abs(it.y - current.y) <= LINE_TOLERANCE &&
               it.x >= current.x + current.width - 2 &&
-              it.x - (current.x + current.width) <= 2 &&
+              // A word space is ~2.3pt at this font size, so the
+              // window must reach past it ("fewer problems" + "or").
+              it.x - (current.x + current.width) <= 3 &&
               it.str.trim().length > 0 &&
               !it.str.trim().endsWith(":") &&
               !isHeading(it.str),
@@ -598,7 +631,13 @@ export async function detectFields(
           .sort((a, b) => a.x - b.x)[0];
         if (!next) break;
         const gap = next.x - (current.x + current.width);
-        text += (gap < 2 ? "" : " ") + next.str.trim();
+        // A mid-word split abuts the previous fragment (gap ~0:
+        // "R" + "educed", "for writi" + "ng"); a separate word
+        // sits a word-space away (gap ~2.3: "Use" + "of multiple-").
+        // A fragment ending in "-" is a hyphenated split, so it
+        // joins directly ("multiple-" + "choice").
+        text +=
+          (text.endsWith("-") ? "" : gap < 0.5 ? "" : " ") + next.str.trim();
         current = next;
       }
       return text;
@@ -614,18 +653,21 @@ export async function detectFields(
       for (let depth = 0; depth < 2; depth++) {
         const above = items.find(
           (item) =>
-            item.y > current.y + 10 &&
-            item.y < current.y + 14 &&
+            item.y > current.y + 8 &&
+            item.y < current.y + 15 &&
             Math.abs(item.x - current.x) < 25 &&
             item.str.trim().length > 0 &&
             !item.str.trim().endsWith(":") &&
             !isHeading(item.str),
         );
         if (!above) break;
+        // The line above belongs to the previous option, not this
+        // label — stop there instead of stealing its words.
+        if (isOptionLabel(above)) break;
         parts.unshift(fullLineText(above));
         current = above;
       }
-      return parts.join(" ");
+      return parts.length ? parts.reduce(joinLabelParts) : "";
     }
 
     // The continuation line(s) of a wrapped option label, below this
@@ -633,10 +675,14 @@ export async function detectFields(
     function wrappedSuffix(labelItem: LineItem): string {
       const parts: string[] = [];
       let current = labelItem;
-      for (let depth = 0; depth < 2; depth++) {
+      // Up to 3 continuation lines: some option labels wrap to 4
+      // lines ("Use of multiple-choice instead of open-ended
+      // questions"). The next option starts ~18pt below the last
+      // line, outside the 8–15pt window, so this cannot over-join.
+      for (let depth = 0; depth < 3; depth++) {
         const below = items.find(
           (item) =>
-            item.y < current.y - 10 &&
+            item.y < current.y - 8 &&
             item.y > current.y - 15 &&
             Math.abs(item.x - current.x) < 25 &&
             item.str.trim().length > 0 &&
@@ -644,10 +690,15 @@ export async function detectFields(
             !isHeading(item.str),
         );
         if (!below) break;
+        // The line below belongs to the next option, not this label
+        // — stop there instead of stealing its words. (Options in
+        // a column sit ~13pt below the last line of the label
+        // above, exactly where a continuation would be.)
+        if (isOptionLabel(below)) break;
         parts.push(fullLineText(below));
         current = below;
       }
-      return parts.join(" ");
+      return parts.length ? parts.reduce(joinLabelParts) : "";
     }
 
     for (const line of lines) {
@@ -663,10 +714,12 @@ export async function detectFields(
           .slice(i + 1)
           .find((candidate) => candidate.str.trim().length > 0);
         if (!next) continue;
-        const label = cleanLabel(next.str);
+        // The label text can be split into fragments on one line
+        // ("R" + "educed") — join them before judging the label.
+        const label = cleanLabel(fullLineText(next));
         if (!label || isFragmentLabel(label)) continue;
         const suffix = wrappedSuffix(next);
-        const fullLabel = suffix ? `${label} ${suffix}` : label;
+        const fullLabel = suffix ? joinLabelParts(label, suffix) : label;
         found.push({
           id: `p${pageNumber}-b${found.length}`,
           page: pageNumber,
@@ -752,7 +805,7 @@ export async function detectFields(
       fieldWidth: number,
     ) => {
       const prefix = wrappedPrefix(item);
-      const fullLabel = prefix ? `${prefix} ${label}` : label;
+      const fullLabel = prefix ? joinLabelParts(prefix, label) : label;
       found.push({
         id: `p${pageNumber}-c${found.length}`,
         page: pageNumber,
@@ -837,30 +890,14 @@ export async function detectFields(
     // the textarea runs from just below that label to the next label
     // below it (or the box bottom), so it never covers other labels.
     {
-      const isOptionLabel = (labelItem: LineItem): boolean => {
-        const lineOf = lines.find((l) => l.includes(labelItem));
-        if (
-          lineOf?.some(
-            (c) => c.x < labelItem.x && CHECKBOX_CHARS.has(c.str.trim()),
-          )
-        ) {
-          return true;
-        }
-        return squares.some(
-          (sq) =>
-            Math.abs(sq.y + sq.size / 2 - labelItem.y) <= 7 &&
-            labelItem.x - (sq.x + sq.size) >= -2 &&
-            labelItem.x - (sq.x + sq.size) <= 40,
-        );
-      };
       // A wrapped label's continuation line above this item (same
       // window as wrappedPrefix) — such an item is part of the label
       // above it, not a box label of its own.
       const hasLineAbove = (labelItem: LineItem): boolean =>
         items.some(
           (it) =>
-            it.y > labelItem.y + 10 &&
-            it.y < labelItem.y + 14 &&
+            it.y > labelItem.y + 8 &&
+            it.y < labelItem.y + 15 &&
             Math.abs(it.x - labelItem.x) < 25 &&
             it.str.trim().length > 0 &&
             !it.str.trim().endsWith(":") &&
@@ -891,6 +928,41 @@ export async function detectFields(
         (a, b) => (a.x2 - a.x1) * (a.y2 - a.y1) - (b.x2 - b.x1) * (b.y2 - b.y1),
       );
       for (const rect of unusedRects) {
+        // A tall box is a writing area only when it is empty: the
+        // "Additional Modifications" box (~230pt, just its own label
+        // inside) qualifies; a checkbox column of the same height,
+        // full of squares and option labels, does not.
+        if (rect.y2 - rect.y1 > 200) {
+          const hasSquareInside = squares.some(
+            (sq) =>
+              sq.x >= rect.x1 &&
+              sq.x + sq.size <= rect.x2 &&
+              sq.y >= rect.y1 &&
+              sq.y + sq.size <= rect.y2,
+          );
+          const textInside = items.filter(
+            (it) =>
+              it.str.trim().length > 0 &&
+              !isHeading(it.str) &&
+              it.x >= rect.x1 &&
+              it.x <= rect.x2 &&
+              it.y >= rect.y1 &&
+              it.y <= rect.y2,
+          );
+          // A grid of writing lines inside the box (the signature
+          // table: 6 rows × 3 columns) means it is a table, not an
+          // empty writing area.
+          const linesInside = unusedLines.filter(
+            (l) =>
+              l.y1 > rect.y1 + 1 &&
+              l.y1 < rect.y2 - 1 &&
+              l.x1 >= rect.x1 - 3 &&
+              l.x2 <= rect.x2 + 3,
+          ).length;
+          if (hasSquareInside || textInside.length > 3 || linesInside > 2) {
+            continue;
+          }
+        }
         const associated = candLabels
           .filter(
             (c) =>
@@ -909,7 +981,7 @@ export async function detectFields(
           let labelBottomY = labelItem.y;
           for (const it of items) {
             if (
-              it.y < labelItem.y - 10 &&
+              it.y < labelItem.y - 8 &&
               it.y > labelItem.y - 15 &&
               Math.abs(it.x - labelItem.x) < 25 &&
               it.str.trim().length > 0 &&
@@ -920,6 +992,10 @@ export async function detectFields(
           }
           const top = Math.min(labelBottomY - 4, rect.y2 - 2);
           // Next label below inside this box caps the textarea.
+          // The cap starts below the label's own lowest wrapped
+          // line (labelBottomY), not below its first line — a
+          // 2-line label ("Additional" / "Modifications") would
+          // otherwise cap its own box to a negative height.
           let bottom = rect.y1 + 4;
           for (const it of items) {
             if (
@@ -927,7 +1003,7 @@ export async function detectFields(
               !isHeading(it.str) &&
               it.x >= rect.x1 - 5 &&
               it.x <= rect.x2 + 5 &&
-              it.y < labelItem.y - 6 &&
+              it.y < labelBottomY - 6 &&
               it.y >= rect.y1
             ) {
               bottom = Math.max(bottom, it.y + 8);
@@ -937,15 +1013,12 @@ export async function detectFields(
           if (height < 14) continue;
           const suffix =
             cand.colonIndex < 0 ? wrappedSuffix(labelItem) : "";
-          const fullLabel =
-            cand.colonIndex >= 0
-              ? (() => {
-                  const prefix = wrappedPrefix(labelItem);
-                  return prefix ? `${prefix} ${cand.label}` : cand.label;
-                })()
-              : suffix
-                ? `${cand.label} ${suffix}`
-                : cand.label;
+          const labelParts = [
+            wrappedPrefix(labelItem),
+            cand.label,
+            suffix,
+          ].filter(Boolean);
+          const fullLabel = labelParts.reduce(joinLabelParts);
           found.push({
             id: `p${pageNumber}-t${found.length}`,
             page: pageNumber,
@@ -1053,13 +1126,20 @@ export async function detectFields(
         )
         .sort((a, b) => a.x - b.x)[0];
       if (!next) continue;
-      const label = cleanLabel(next.str);
+      // The label text can be split into fragments on one line
+      // ("R" + "educed", "Use" + "of multiple-") — join them first.
+      const label = cleanLabel(fullLineText(next));
       if (!label || isFragmentLabel(label)) continue;
-      if (next.str.trim().endsWith(":")) continue;
+      if (label.endsWith(":") || next.str.trim().endsWith(":")) continue;
       if (isHeading(next.str)) continue;
+      // The dedupe is page-scoped: pages 6 and 7 of this IEP lay
+      // their checkboxes out on the same grid, and without the page
+      // check every page-7 square that sits where a page-6 square
+      // sat was silently dropped (12 missed checkboxes).
       if (
         found.some(
           (f) =>
+            f.page === pageNumber &&
             f.type === "checkbox" &&
             Math.abs(f.x - sq.x) < 5 &&
             Math.abs(f.y - sq.y) < 8,
@@ -1068,7 +1148,7 @@ export async function detectFields(
         continue;
       }
       const suffix = wrappedSuffix(next);
-      const fullLabel = suffix ? `${label} ${suffix}` : label;
+      const fullLabel = suffix ? joinLabelParts(label, suffix) : label;
       found.push({
         id: `p${pageNumber}-s${found.length}`,
         page: pageNumber,

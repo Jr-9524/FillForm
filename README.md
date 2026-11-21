@@ -136,6 +136,24 @@ a field in the list flips the preview to that field's page.
   page's height — the list scrolls inside the panel instead of
   pushing the page down.
 
+## Missed checkboxes fixed (2026-11-21)
+
+Page 7 (Modifications) was only finding 13 of its 25 checkboxes.
+The cause was a cross-page dedupe bug: the checkbox dedupe compared
+positions without checking the page, and pages 6 and 7 lay their
+checkboxes out on the same grid — so every page-7 square sitting
+where a page-6 square sat was silently dropped (12 missed). Fixed
+by scoping the dedupe to the page. Same round: split label
+fragments are joined first ("R" + "educed", "Use" + "of
+multiple-"), wrapped labels run to 3 continuation lines, a
+continuation that belongs to the next option is never stolen
+(it has its own square to the left), hyphenated splits join
+without a space ("multiple-choice", "text-to-speech"), and tall
+empty boxes are detected as textareas when they hold no squares,
+labels, or writing lines — the "Additional Modifications" box on
+page 7 is one now. A tall grid (the page-9 signature table) is
+still not claimed. IEP is 136 fields (was 120).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
