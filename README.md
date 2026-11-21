@@ -208,6 +208,29 @@ fields on IEP page 1 have their box bottom exactly on their line,
 and drag/resize round-trips exactly (0 failures). Detection is
 unchanged (136 fields).
 
+## Minimum height, padding + font editor (2026-11-21)
+
+A text box is never shorter than its font size + 4pt of padding
+(16pt at the default 12pt font), so the answer always fits with
+room around it — resizing a box cannot shrink it below that, and a
+bigger font grows the box. The answer also sits 4pt in from the
+box's left and right edges, matching the download. The box bottom
+is still the text baseline (the line), so the padding is above the
+text and on the sides.
+
+Each field (except checkboxes) has a Font row in the editor:
+family (Helvetica, Times New Roman, or Courier), size (7–24pt),
+Bold, and Italic. The choice shows in the Setup placeholder and
+the Fill live preview, and the download draws the answer in that
+font (pdf-lib's built-in StandardFonts, no font files needed) at
+that size, shrinking to 7pt only if a long answer would not fit.
+Changing the size grows the box to at least the new size + padding.
+Fields created before the font editor existed default to
+Helvetica 12pt regular. Verified: detection unchanged (136
+fields), all text boxes render at least 16pt with their bottom
+exactly on the line, and a Times Bold 14 + Courier 10 filled PDF
+embeds Times-Bold and Courier with the answers in place.
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new

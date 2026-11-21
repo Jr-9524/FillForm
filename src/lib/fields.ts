@@ -1,3 +1,5 @@
+import type { FontFamilyId } from "./fonts";
+
 export type FieldType = "text" | "date" | "number" | "textarea" | "checkbox";
 
 /**
@@ -19,6 +21,13 @@ export type DetectedField = {
   included: boolean; // false = excluded from the form, but kept in the list
   required: boolean;
   group: string; // section heading above the field, e.g. "STUDENT INFORMATION"
+  // Font for the answer (see src/lib/fonts.ts). Optional so fields
+  // created before the font editor existed still load — getFieldFont
+  // fills in Helvetica 12pt regular.
+  fontFamily?: FontFamilyId;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
 };
 
 /** Sort fields in document order (page, top-to-bottom, left-to-right) and number them. */
@@ -55,12 +64,16 @@ export function createManualField(
     x: Math.round(x * 10) / 10,
     y: Math.round(y * 10) / 10,
     width: 150,
-    height: 14,
+    height: 16,
     label,
     type: "text",
     order: 0,
     included: true,
     required: false,
     group: "",
+    fontFamily: "helvetica",
+    fontSize: 12,
+    bold: false,
+    italic: false,
   };
 }

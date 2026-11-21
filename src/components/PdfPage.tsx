@@ -5,6 +5,10 @@ import {
   fitSingleLineSize,
   fitTextarea,
 } from "../lib/fitText";
+import {
+  cssFontFamily,
+  getFieldFont,
+} from "../lib/fonts";
 
 type PdfPageProps = {
   pdf: PDFDocumentProxy;
@@ -29,6 +33,16 @@ type PdfPageProps = {
 };
 
 const RENDER_SCALE = 1.5;
+
+// Padding inside a text box, in PDF points: the answer sits 4pt
+// in from the left and right edges and the box is at least the
+// font size + 4pt tall, so the text never touches the box edges.
+const BOX_PAD = 4;
+
+/** Smallest height a text / textarea box may have: its font size plus padding. */
+function minBoxHeight(field: DetectedField): number {
+  return getFieldFont(field).size + BOX_PAD;
+}
 
 // Placeholder shown inside Setup boxes so the creator can see what
 // a filled box looks like. The single line is long on purpose —
@@ -135,8 +149,6 @@ export function PdfPage({
     };
   }, [pdf, pageNumber]);
 
-  // The box as drawn, in PDF points from the page's top edge.
-  // Detection y is the blank line itself, so a text box straddles
   // Display box (PDF points from the page top) for a field. A text
   // field's y is the text baseline — the drawn line itself — and the
   // box sits ON that line: its bottom edge is the baseline, so the
@@ -146,13 +158,15 @@ export function PdfPage({
   // where the download draws it. (An earlier split put 3pt of the box
   // below the line and the rest above; the box then read as floating
   // above the line and, when a user aligned its bottom edge with the
-  // line, the answer landed 3pt above it.) A checkbox box is the
-  // square itself; a textarea's y is the TOP of its box, so the box
-  // is drawn full-size.
+  // line, the answer landed 3pt above it.) The box is never shorter
+  // than its font size + padding, so the text always fits with room
+  // around it. A checkbox box is the square itself; a textarea's y
+  // is the TOP of its box, so the box is drawn full-size.
   function displayBox(field: DetectedField): DisplayBox {
     const ph = pageSizeRef.current.height;
     if (field.type === "textarea") {
-      return { left: field.x, top: ph - field.y, width: field.width, height: field.height };
+      const height = Math.max(field.height, minBoxHeight(field));
+      return { left: field.x, top: ph - field.y, width: field.width, height };
     }
     if (field.type === "checkbox") {
       return {
@@ -162,11 +176,12 @@ export function PdfPage({
         height: field.height,
       };
     }
+    const height = Math.max(field.height, minBoxHeight(field));
     return {
       left: field.x,
-      top: ph - field.y - field.height,
+      top: ph - field.y - height,
       width: field.width,
-      height: field.height,
+      height,
     };
   }
 
@@ -178,7 +193,11 @@ export function PdfPage({
   ): Partial<DetectedField> {
     const ph = pageSizeRef.current.height;
     const width = Math.max(10, Math.round(box.width * 10) / 10);
-    const height = Math.max(5, Math.round(box.height * 10) / 10);
+    // A text / textarea box never shrinks below its font size +
+    // padding, so the answer always fits with room around it.
+    const minHeight =
+      field.type === "checkbox" ? 5 : minBoxHeight(field);
+    const height = Math.max(minHeight, Math.round(box.height * 10) / 10);
     const x = Math.max(0, Math.round(box.left * 10) / 10);
     if (field.type === "textarea") {
       return { x, y: Math.round((ph - box.top) * 10) / 10, width, height };
@@ -244,13 +263,17 @@ export function PdfPage({
         height: s.height,
       };
     } else {
+      // Resize: the box never shrinks below its minimum height
+      // (font size + padding for text, 5pt for a checkbox square).
+      const minH =
+        drag.field.type === "checkbox" ? 5 : minBoxHeight(drag.field);
       const left =
         drag.mode === "nw" || drag.mode === "sw"
           ? Math.max(0, Math.min(s.left + s.width - 10, s.left + dx))
           : s.left;
       const top =
         drag.mode === "nw" || drag.mode === "ne"
-          ? Math.max(0, Math.min(s.top + s.height - 5, s.top + dy))
+          ? Math.max(0, Math.min(s.top + s.height - minH, s.top + dy))
           : s.top;
       const width =
         drag.mode === "nw" || drag.mode === "sw"
@@ -258,11 +281,11 @@ export function PdfPage({
           : Math.max(10, s.width + dx);
       const height =
         drag.mode === "nw" || drag.mode === "ne"
-          ? Math.max(5, s.height - dy)
-          : Math.max(5, s.height + dy);
+          ? Math.max(minH, s.height - dy)
+          : Math.max(minH, s.height + dy);
       box = {
         left: Math.min(left, pw - 10),
-        top: Math.min(top, ph - 5),
+        top: Math.min(top, ph - minH),
         width: Math.min(width, pw - left),
         height: Math.min(height, ph - top),
       };
@@ -354,7 +377,9 @@ export function PdfPage({
               // Placeholder preview inside the box, matching the
               // field's type: a check mark for checkboxes, a date
               // for dates, a number for numbers, lorem ipsum for
-              // text, wrapped lorem ipsum for textareas.
+              // text, wrapped lorem ipsum for textareas. It uses the
+              // field's own font, so the preview looks like the
+              // answer will look.
               const placeholder =
                 field.type === "checkbox"
                   ? "✓"
@@ -365,8 +390,9 @@ export function PdfPage({
                       : field.type === "textarea"
                         ? LOREM_BLOCK
                         : LOREM_LINE;
+              const font = getFieldFont(field);
               const placeholderSize =
-                field.type === "checkbox" ? 10 : 12;
+                field.type === "checkbox" ? 10 : font.size;
               return (
                 <div key={field.id}>
                   <div
@@ -408,7 +434,17 @@ export function PdfPage({
                           fontSize: `${placeholderSize * scale}px`,
                           lineHeight:
                             field.type === "textarea" ? 1.25 : 1,
-                          fontFamily: "Helvetica, Arial, sans-serif",
+                          fontFamily: cssFontFamily(font),
+                          fontStyle: font.italic ? "italic" : "normal",
+                          fontWeight: font.bold ? 700 : 400,
+                          // Padding inside the box, matching the
+                          // download (answers start 4pt in from the
+                          // left edge): the text never touches the
+                          // box's sides.
+                          padding:
+                            field.type === "checkbox"
+                              ? 0
+                              : `0 ${BOX_PAD * scale}px`,
                           whiteSpace:
                             field.type === "textarea" ? "normal" : "nowrap",
                           display: "flex",
@@ -422,8 +458,6 @@ export function PdfPage({
                             field.type === "checkbox"
                               ? "center"
                               : "flex-start",
-                          fontWeight:
-                            field.type === "checkbox" ? 700 : 400,
                         }}
                       >
                         {placeholder}
@@ -486,11 +520,13 @@ export function PdfPage({
                   </div>
                 );
               }
+              const font = getFieldFont(field);
               if (field.type === "textarea") {
                 const { size, lines } = fitTextarea(
                   text,
                   field.width - 8,
                   field.height,
+                  font,
                 );
                 return (
                   <div
@@ -504,7 +540,9 @@ export function PdfPage({
                       height: `${(field.height / ph) * 100}%`,
                       fontSize: `${size * scale}px`,
                       lineHeight: 1.25,
-                      fontFamily: "Helvetica, Arial, sans-serif",
+                      fontFamily: cssFontFamily(font),
+                      fontStyle: font.italic ? "italic" : "normal",
+                      fontWeight: font.bold ? 700 : 400,
                     }}
                   >
                     {lines.map((line, i) => (
@@ -516,7 +554,7 @@ export function PdfPage({
                   </div>
                 );
               }
-              const size = fitSingleLineSize(text, field.width);
+              const size = fitSingleLineSize(text, field.width, font);
               return (
                 <div
                   key={field.id}
@@ -525,15 +563,17 @@ export function PdfPage({
                   style={{
                     left: `${((field.x + 4) / pw) * 100}%`,
                     // The div's top is the text's cap top, not its
-                    // baseline: in a lineHeight-1 Helvetica line the
-                    // baseline sits ~0.85em below the div top, so the
-                    // top is placed 0.85*size above the field's y
-                    // (the line) to put the baseline exactly on it,
+                    // baseline: in a lineHeight-1 line the baseline
+                    // sits ~0.85em below the div top, so the top is
+                    // placed 0.85*size above the field's y (the
+                    // line) to put the baseline exactly on it,
                     // matching the downloaded PDF.
                     top: `${((ph - field.y - size * 0.85) / ph) * 100}%`,
                     fontSize: `${size * scale}px`,
                     lineHeight: 1,
-                    fontFamily: "Helvetica, Arial, sans-serif",
+                    fontFamily: cssFontFamily(font),
+                    fontStyle: font.italic ? "italic" : "normal",
+                    fontWeight: font.bold ? 700 : 400,
                   }}
                 >
                   {text}

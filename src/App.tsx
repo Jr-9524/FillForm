@@ -11,6 +11,11 @@ import {
   sortAndOrderFields,
 } from "./lib/fields";
 import type { DetectedField, FieldType } from "./lib/fields";
+import {
+  FONT_FAMILIES,
+  getFieldFont,
+  type FontFamilyId,
+} from "./lib/fonts";
 
 type View = "setup" | "fill";
 
@@ -678,6 +683,87 @@ function App() {
                                 Include
                               </label>
                             </div>
+                            {field.type !== "checkbox" && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-medium text-gray-500">
+                                  Font
+                                </span>
+                                <select
+                                  value={getFieldFont(field).family}
+                                  aria-label={`Field ${field.order} font family`}
+                                  onChange={(e) =>
+                                    updateField(field.id, {
+                                      fontFamily:
+                                        e.target.value as FontFamilyId,
+                                    })
+                                  }
+                                  className="rounded border border-gray-300 px-2 py-1 text-sm"
+                                >
+                                  {FONT_FAMILIES.map((f) => (
+                                    <option key={f.id} value={f.id}>
+                                      {f.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <label className="flex items-center gap-1 text-sm text-gray-700">
+                                  <input
+                                    type="number"
+                                    min="7"
+                                    max="24"
+                                    step="0.5"
+                                    value={getFieldFont(field).size}
+                                    aria-label={`Field ${field.order} font size`}
+                                    onChange={(e) => {
+                                      const parsed = parseFloat(
+                                        e.target.value,
+                                      );
+                                      if (
+                                        Number.isFinite(parsed) &&
+                                        parsed >= 7 &&
+                                        parsed <= 24
+                                      ) {
+                                        // A bigger font needs a
+                                        // taller box (font size +
+                                        // padding is the minimum).
+                                        updateField(field.id, {
+                                          fontSize: parsed,
+                                          height: Math.max(
+                                            field.height,
+                                            parsed + 4,
+                                          ),
+                                        });
+                                      }
+                                    }}
+                                    className="w-16 rounded border border-gray-300 px-1 py-1 text-sm"
+                                  />
+                                  pt
+                                </label>
+                                <label className="flex items-center gap-1 text-sm text-gray-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={getFieldFont(field).bold}
+                                    onChange={(e) =>
+                                      updateField(field.id, {
+                                        bold: e.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span className="font-bold">B</span>
+                                </label>
+                                <label className="flex items-center gap-1 text-sm text-gray-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={getFieldFont(field).italic}
+                                    onChange={(e) =>
+                                      updateField(field.id, {
+                                        italic: e.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span className="italic">I</span>
+                                </label>
+                              </div>
+                            )}
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
                               {(
                                 [
