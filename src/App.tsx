@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import { PdfPage } from "./components/PdfPage";
 import { FillForm } from "./components/FillForm";
@@ -54,6 +54,81 @@ function App() {
   // hovered box does, so the placeholders do not hide the form).
   const [setupZoom, setSetupZoom] = useState(1);
   const [showAllPlaceholders, setShowAllPlaceholders] = useState(false);
+  // Re-detect feedback: a short message after a run, so the user can
+  // tell it actually ran (the counts alone do not change when the
+  // detection is the same).
+  const [detectStatus, setDetectStatus] = useState<string | null>(null);
+  const detectStatusTimerRef = useRef<number | null>(null);
+  // Undo history for field edits: snapshots of the field list before
+  // each change (drag, resize, label/type/font edit, move, delete,
+  // add, re-detect). Capped at 50. Coalesced per field within 800ms
+  // so one drag (many pointermove updates) is a single undo step,
+  // not one per pixel — and so typing a label is one step too.
+  const fieldsHistoryRef = useRef<DetectedField[][]>([]);
+  const lastHistoryPushRef = useRef<{ fieldId: string | null; at: number }>({
+    fieldId: null,
+    at: 0,
+  });
+  const [canUndo, setCanUndo] = useState(false);
+  // Mirror of the latest fields, so a history snapshot taken inside
+  // an event handler is the committed state, not a stale closure.
+  const fieldsRef = useRef(fields);
+  useEffect(() => {
+    fieldsRef.current = fields;
+  }, [fields]);
+
+  function pushFieldsHistory(fieldId: string | null = null) {
+    const now = Date.now();
+    const last = lastHistoryPushRef.current;
+    if (last.fieldId === fieldId && now - last.at < 800) return;
+    lastHistoryPushRef.current = { fieldId, at: now };
+    const stack = fieldsHistoryRef.current;
+    stack.push(fieldsRef.current.map((f) => ({ ...f })));
+    if (stack.length > 50) stack.shift();
+    setCanUndo(true);
+  }
+
+  const handleUndo = useCallback(() => {
+    const stack = fieldsHistoryRef.current;
+    const prev = stack.pop();
+    if (!prev) return;
+    setFields(prev);
+    setCanUndo(stack.length > 0);
+    // Drop the selection if that field is gone in the restored list.
+    setSelectedFieldId((current) =>
+      current !== null && prev.some((f) => f.id === current)
+        ? current
+        : null,
+    );
+    setSubmitted(false);
+  }, []);
+
+  // Ctrl+Z / Cmd+Z undoes a field edit in Setup — but not while the
+  // user is typing in a text input, where the browser's own text
+  // undo should win.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === "z" &&
+        !e.shiftKey
+      ) {
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT")
+        )
+          return;
+        if (view !== "setup" || !pdf) return;
+        e.preventDefault();
+        handleUndo();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, pdf, handleUndo]);
   const previewWrapRef = useRef<HTMLDivElement>(null);
   const [previewHeight, setPreviewHeight] = useState<number | null>(null);
 
@@ -123,6 +198,10 @@ function App() {
     setPageCount(0);
     setPreviewPage(1);
     setFields([]);
+    // A new upload is a fresh start — undo history from the old
+    // document must not restore its fields.
+    fieldsHistoryRef.current = [];
+    setCanUndo(false);
     setAddMode(false);
     setView("setup");
     setAnswers(loadSavedAnswers(file.name));
@@ -183,14 +262,27 @@ function App() {
     const runId = ++detectionRunRef.current;
     setDetecting(true);
     setError(null);
+    setDetectStatus(null);
+    if (detectStatusTimerRef.current !== null) {
+      window.clearTimeout(detectStatusTimerRef.current);
+      detectStatusTimerRef.current = null;
+    }
     try {
       const detected = await detectFields(pdf);
       if (detectionRunRef.current !== runId) return;
+      pushFieldsHistory();
       setFields(detected);
       setSelectedFieldId(null);
       setPreviewPage(1);
       setMissingIds([]);
       setSubmitted(false);
+      setDetectStatus(
+        `Re-detected: ${detected.length} field${detected.length === 1 ? "" : "s"} total.`,
+      );
+      detectStatusTimerRef.current = window.setTimeout(() => {
+        setDetectStatus(null);
+        detectStatusTimerRef.current = null;
+      }, 6000);
       setAnswers((prev) => {
         const kept: Record<string, string> = {};
         for (const field of detected) {
@@ -220,6 +312,8 @@ function App() {
     setPreviewPage(1);
     setFileName(null);
     setFields([]);
+    fieldsHistoryRef.current = [];
+    setCanUndo(false);
     setAddMode(false);
     setDetecting(false);
     setError(null);
@@ -238,6 +332,7 @@ function App() {
     if (label === null) return;
     const trimmed = label.trim() || "Field";
     const field = createManualField(pageNumber, x, y, trimmed);
+    pushFieldsHistory();
     setFields((prev) => sortAndOrderFields([...prev, field]));
     // Select the new field so it can be dragged and resized at once.
     setSelectedFieldId(field.id);
@@ -245,18 +340,28 @@ function App() {
 
   // Slice 2: field editor helpers.
   function updateField(id: string, patch: Partial<DetectedField>) {
+    pushFieldsHistory(id);
     setFields((prev) =>
       prev.map((field) => (field.id === id ? { ...field, ...patch } : field)),
     );
   }
 
   function deleteField(id: string) {
+    const field = fields.find((f) => f.id === id);
+    if (
+      !window.confirm(
+        `Delete field "${field?.label ?? id}"? You can undo with Ctrl+Z.`,
+      )
+    )
+      return;
+    pushFieldsHistory();
     setFields((prev) =>
       renumberFields(prev.filter((field) => field.id !== id)),
     );
   }
 
   function moveField(id: string, direction: -1 | 1) {
+    pushFieldsHistory();
     setFields((prev) => {
       const index = prev.findIndex((field) => field.id === id);
       const target = index + direction;
@@ -352,23 +457,15 @@ function App() {
     window.open(url, "_blank");
   }
 
-  // The field list only shows the page being previewed.
+  // The field list only shows the page being previewed, in document
+  // order (field number). The section heading ("STUDENT
+  // INFORMATION", ...) is shown as a small tag on each card, so
+  // duplicate labels ("Other", "Address") can be told apart — and so
+  // the list does not jump between sections the way grouping did.
   const pageFields = fields.filter((field) => field.page === previewPage);
   const pageIncludedCount = pageFields.filter(
     (field) => field.included,
   ).length;
-
-  // Group the page's fields by section heading
-  // ("STUDENT INFORMATION", "PARENT INFORMATION", ...).
-  const groupedFields: { key: string; title: string; items: DetectedField[] }[] =
-    [];
-  for (const field of pageFields) {
-    const title = field.group ?? `Page ${field.page}`;
-    const key = `${field.page}|${field.group}`;
-    const existing = groupedFields.find((g) => g.key === key);
-    if (existing) existing.items.push(field);
-    else groupedFields.push({ key, title, items: [field] });
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -542,6 +639,20 @@ function App() {
                     >
                       {detecting ? "Detecting…" : "Re-detect fields"}
                     </button>
+                    {detectStatus && (
+                      <span className="text-sm text-green-700">
+                        {detectStatus}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      title="Undo the last field change (Ctrl+Z)"
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      ↩ Undo
+                    </button>
                     <button
                       type="button"
                       onClick={() => setAddMode((v) => !v)}
@@ -634,14 +745,16 @@ function App() {
                             {" · "}
                             {fields.length} total
                           </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Include = the field appears in the Fill form.
+                            Required = the filler must answer it before
+                            downloading.
+                          </p>
                           <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
-                            {groupedFields.map((group) => (
-                        <div key={group.key} className="mt-4">
-                          <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            {group.title}
-                          </h3>
-                          <ol className="mt-2 space-y-3">
-                            {group.items.map((field) => (
+                            <ol className="mt-2 space-y-3">
+                              {[...pageFields]
+                                .sort((a, b) => a.order - b.order)
+                                .map((field) => (
                               <li
                                 key={field.id}
                                 onClick={() => handleFieldSelect(field.id)}
@@ -666,9 +779,14 @@ function App() {
                                 }
                                 className={`min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm font-medium ${field.included ? "" : "line-through"}`}
                               />
-                              <span className="shrink-0 text-xs text-gray-500">
-                                Page {field.page}
-                              </span>
+                              {field.group && (
+                                <span
+                                  title={`Section: ${field.group}`}
+                                  className="max-w-28 shrink-0 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500"
+                                >
+                                  {field.group}
+                                </span>
+                              )}
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <select
@@ -687,7 +805,10 @@ function App() {
                                 <option value="number">Number</option>
                                 <option value="checkbox">Checkbox</option>
                               </select>
-                              <label className="flex items-center gap-1 text-sm text-gray-700">
+                              <label
+                                title="The filler must answer this field before downloading"
+                                className="flex items-center gap-1 text-sm text-gray-700"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={field.required}
@@ -699,7 +820,10 @@ function App() {
                                 />
                                 Required
                               </label>
-                              <label className="flex items-center gap-1 text-sm text-gray-700">
+                              <label
+                                title="The field appears in the Fill form — uncheck to hide it from fillers"
+                                className="flex items-center gap-1 text-sm text-gray-700"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={field.included}
@@ -709,7 +833,7 @@ function App() {
                                     })
                                   }
                                 />
-                                Include
+                                Include in form
                               </label>
                             </div>
                             {field.type !== "checkbox" && (
@@ -767,10 +891,14 @@ function App() {
                                   />
                                   pt
                                 </label>
-                                <label className="flex items-center gap-1 text-sm text-gray-700">
+                                <label
+                                  title="Bold"
+                                  className="flex items-center gap-1 text-sm text-gray-700"
+                                >
                                   <input
                                     type="checkbox"
                                     checked={getFieldFont(field).bold}
+                                    aria-label={`Field ${field.order} bold`}
                                     onChange={(e) =>
                                       updateField(field.id, {
                                         bold: e.target.checked,
@@ -779,10 +907,14 @@ function App() {
                                   />
                                   <span className="font-bold">B</span>
                                 </label>
-                                <label className="flex items-center gap-1 text-sm text-gray-700">
+                                <label
+                                  title="Italic"
+                                  className="flex items-center gap-1 text-sm text-gray-700"
+                                >
                                   <input
                                     type="checkbox"
                                     checked={getFieldFont(field).italic}
+                                    aria-label={`Field ${field.order} italic`}
                                     onChange={(e) =>
                                       updateField(field.id, {
                                         italic: e.target.checked,
@@ -793,7 +925,11 @@ function App() {
                                 </label>
                               </div>
                             )}
-                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                            <details className="mt-2">
+                              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+                                Position (X / Y / W / H)
+                              </summary>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
                               {(
                                 [
                                   ["X", field.x],
@@ -831,6 +967,7 @@ function App() {
                                 pt from bottom-left
                               </span>
                             </div>
+                            </details>
                             <div className="mt-2 flex items-center gap-1">
                               <button
                                 type="button"
@@ -871,10 +1008,8 @@ function App() {
                               </button>
                             </div>
                               </li>
-                            ))}
-                          </ol>
-                        </div>
-                      ))}
+                                ))}
+                            </ol>
                           </div>
                         </>
                       ) : (
@@ -887,8 +1022,9 @@ function App() {
                       <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
                         Tip: click a field to highlight it on the page. Drag
                         the highlighted box to move it, drag its corners to
-                        resize it, or type the exact X / Y / W / H above.
-                        Click on a page to add a field at that spot.
+                        resize it, or open Position to type the exact X / Y
+                        / W / H. Turn on “+ Add field” to add a field by
+                        clicking the page. Ctrl+Z undoes a field change.
                       </p>
                     </>
                   )}

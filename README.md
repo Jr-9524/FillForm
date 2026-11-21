@@ -231,6 +231,32 @@ fields), all text boxes render at least 16pt with their bottom
 exactly on the line, and a Times Bold 14 + Courier 10 filled PDF
 embeds Times-Bold and Courier with the answers in place.
 
+## Setup panel fixes (2026-11-21)
+
+**Undo.** Every field change (drag, resize, label/type/font edit,
+move, delete, add, re-detect) pushes the field list onto a history
+stack (capped at 50, one step per drag, not per pixel). Undo is
+Ctrl+Z / Cmd+Z in Setup, or the ↩ Undo button in the toolbar.
+Text inputs keep their own native undo. Delete now asks for
+confirmation and mentions Ctrl+Z. A new upload or Clear resets the
+history, so undo never restores fields from another document.
+
+**List order.** The panel now lists the page's fields in document
+order (field number), not grouped by section — Parent Information
+no longer sits last. Each card shows its section as a small tag,
+so duplicate labels ("Other" ×4, "Address" ×2) can be told apart.
+The redundant "Page N" on every card is gone.
+
+**Position.** X / Y / W / H are behind a "Position" disclosure per
+card, so the card is shorter and more of them fit; values are
+rounded to 1 decimal. Required is now "Required" with a tooltip,
+Include is "Include in form" with a tooltip, and a one-line note
+under the count explains the difference. B / I have Bold / Italic
+tooltips. Re-detect now reports "Re-detected: N fields total" for
+a few seconds after it runs, so it is clear it actually ran. The
+Tip at the bottom of the panel was corrected (plain clicks do
+nothing while Add mode is off; Ctrl+Z undoes).
+
 ## Big-3 UI/UX fixes (2026-11-21)
 
 From a UI/UX + HCI review of the live site with the IEP:
