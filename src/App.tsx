@@ -40,6 +40,21 @@ function App() {
   // Setup preview shows one page at a time, so the user is never
   // looking at the whole document at once.
   const [previewPage, setPreviewPage] = useState(1);
+  const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
+  const previewWrapRef = useRef<HTMLDivElement>(null);
+  const [previewHeight, setPreviewHeight] = useState<number | null>(null);
+
+  // Match the field panel's height to the previewed page, so the
+  // list scrolls inside the panel instead of pushing the page down.
+  useEffect(() => {
+    const el = previewWrapRef.current;
+    if (!el) return;
+    const measure = () => setPreviewHeight(el.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [previewPage, pdf]);
   const inputRef = useRef<HTMLInputElement>(null);
   // pdf.js v6 destroys a document through its loading task, not the proxy.
   const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
@@ -275,17 +290,18 @@ function App() {
     window.open(url, "_blank");
   }
 
-  const includedCount = includedFields.length;
-  const excludedCount = fields.length - includedCount;
+  // The field list only shows the page being previewed.
+  const pageFields = fields.filter((field) => field.page === previewPage);
+  const pageIncludedCount = pageFields.filter(
+    (field) => field.included,
+  ).length;
 
-  // Group the field list by page, then by section heading
+  // Group the page's fields by section heading
   // ("STUDENT INFORMATION", "PARENT INFORMATION", ...).
   const groupedFields: { key: string; title: string; items: DetectedField[] }[] =
     [];
-  for (const field of fields) {
-    const title = field.group
-      ? `Page ${field.page} — ${field.group}`
-      : `Page ${field.page}`;
+  for (const field of pageFields) {
+    const title = field.group ?? `Page ${field.page}`;
     const key = `${field.page}|${field.group}`;
     const existing = groupedFields.find((g) => g.key === key);
     if (existing) existing.items.push(field);
@@ -454,38 +470,59 @@ function App() {
                       Next →
                     </button>
                   </div>
-                  <PdfPage
-                    key={previewPage}
-                    pdf={pdf}
-                    pageNumber={previewPage}
-                    pageCount={pageCount}
-                    onPageClick={handlePageClick}
-                    fields={fields}
-                    selectedFieldId={selectedFieldId}
-                    onFieldSelect={handleFieldSelect}
-                    onFieldUpdate={updateField}
-                  />
+                  <div ref={previewWrapRef}>
+                    <PdfPage
+                      key={previewPage}
+                      pdf={pdf}
+                      pageNumber={previewPage}
+                      pageCount={pageCount}
+                      onPageClick={handlePageClick}
+                      fields={fields}
+                      selectedFieldId={selectedFieldId}
+                      onFieldSelect={handleFieldSelect}
+                      onFieldUpdate={updateField}
+                    />
+                  </div>
                 </div>
 
-                <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm lg:sticky lg:top-6">
-                  <h2 className="text-base font-semibold">Detected fields</h2>
-                  {detecting ? (
-                    <p className="mt-2 text-sm text-gray-500">
-                      Detecting blanks…
-                    </p>
-                  ) : fields.length > 0 ? (
+                <aside
+                  className="flex flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm lg:sticky lg:top-6"
+                  style={
+                    fieldsCollapsed || !previewHeight
+                      ? undefined
+                      : { height: previewHeight }
+                  }
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-base font-semibold">
+                      Detected fields
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => setFieldsCollapsed((v) => !v)}
+                      aria-expanded={!fieldsCollapsed}
+                      className="shrink-0 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100"
+                    >
+                      {fieldsCollapsed ? "▸ Show" : "▾ Hide"}
+                    </button>
+                  </div>
+                  {!fieldsCollapsed && (
                     <>
-                      <p className="mt-1 text-sm text-gray-600">
-                        {includedCount}{" "}
-                        {includedCount === 1 ? "field" : "fields"} found
-                        {excludedCount > 0 && (
-                          <>
+                      {detecting ? (
+                        <p className="mt-2 text-sm text-gray-500">
+                          Detecting blanks…
+                        </p>
+                      ) : pageFields.length > 0 ? (
+                        <>
+                          <p className="mt-1 text-sm text-gray-600">
+                            {pageIncludedCount}{" "}
+                            {pageIncludedCount === 1 ? "field" : "fields"} on
+                            page {previewPage}
                             {" · "}
-                            {excludedCount} excluded
-                          </>
-                        )}
-                      </p>
-                      {groupedFields.map((group) => (
+                            {fields.length} total
+                          </p>
+                          <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+                            {groupedFields.map((group) => (
                         <div key={group.key} className="mt-4">
                           <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                             {group.title}
@@ -644,18 +681,22 @@ function App() {
                           </ol>
                         </div>
                       ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mt-2 text-sm text-gray-500">
+                          No fields on this page — click on the page to add
+                          one.
+                        </p>
+                      )}
+                      <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
+                        Tip: click a field to highlight it on the page. Drag
+                        the highlighted box to move it, drag its corners to
+                        resize it, or type the exact X / Y / W / H above.
+                        Click on a page to add a field at that spot.
+                      </p>
                     </>
-                  ) : (
-                    <p className="mt-2 text-sm text-gray-500">
-                      No blanks found — you can add fields manually
-                    </p>
                   )}
-                  <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
-                    Tip: click a field to highlight it on the page. Drag the
-                    highlighted box to move it, drag its corners to resize
-                    it, or type the exact X / Y / W / H above. Click on a
-                    page to add a field at that spot.
-                  </p>
                 </aside>
               </div>
             )}

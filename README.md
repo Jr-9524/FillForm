@@ -128,6 +128,14 @@ on a long document. The preview now shows one page at a time, with
 Previous / Next buttons and a page picker ("Page 3 of 9"). Clicking
 a field in the list flips the preview to that field's page.
 
+## Field panel (2026-11-21)
+
+- The Detected fields panel only lists the page being previewed
+  ("8 fields on page 2 · 120 total"), so the list stays short.
+- It is collapsible (Show / Hide) and fixed to the previewed
+  page's height — the list scrolls inside the panel instead of
+  pushing the page down.
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
