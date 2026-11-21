@@ -29,7 +29,7 @@ type Heading = {
 const UNDERSCORE_RUN = /_{3,}/g;
 const LINE_TOLERANCE = 4; // points: items this close in y count as one line
 const MIN_GAP_AFTER_LABEL = 20; // points of empty space after "Label:" = a blank
-const CHECKBOX_CHARS = new Set(["☐", "□", "☑", "☒"]);
+const CHECKBOX_CHARS = new Set(["☐", "□", "\u2B1C", "☑", "☒"]);
 
 // pdf.js operator codes (OPS) and path codes (DrawOPS).
 const OP_SAVE = 10;
@@ -998,6 +998,10 @@ export async function detectFields(
       if (hasCheckboxBelow(item)) continue;
       if (hasOptionBelow(item)) continue;
       if (isContinuation(item)) continue;
+      // A long sentence is not a label ("The following individuals
+      // participated in the development of this IEP:"). Line-backed
+      // labels never reach this fallback, so only the guess is cut.
+      if (label.split(/\s+/).length > 8) continue;
 
       const fieldX = item.x + item.width;
       // Skip blank space items (e.g. the space between a ☐ and its label).

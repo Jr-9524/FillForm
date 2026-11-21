@@ -420,6 +420,7 @@ function App() {
                           fields={fields}
                           selectedFieldId={selectedFieldId}
                           onFieldSelect={handleFieldSelect}
+                          onFieldUpdate={updateField}
                         />
                       ),
                     )}
@@ -521,6 +522,44 @@ function App() {
                                 Include
                               </label>
                             </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                              {(
+                                [
+                                  ["X", field.x],
+                                  ["Y", field.y],
+                                  ["W", field.width],
+                                  ["H", field.height],
+                                ] as const
+                              ).map(([key, value]) => (
+                                <label
+                                  key={key}
+                                  className="flex items-center gap-1"
+                                >
+                                  {key}
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={Math.round(value * 10) / 10}
+                                    aria-label={`Field ${field.order} ${key}`}
+                                    onChange={(e) => {
+                                      const parsed = parseFloat(
+                                        e.target.value,
+                                      );
+                                      if (Number.isFinite(parsed)) {
+                                        updateField(field.id, {
+                                          [key.toLowerCase()]:
+                                            parsed,
+                                        } as Partial<DetectedField>);
+                                      }
+                                    }}
+                                    className="w-16 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                                  />
+                                </label>
+                              ))}
+                              <span className="text-gray-400">
+                                pt from bottom-left
+                              </span>
+                            </div>
                             <div className="mt-2 flex items-center gap-1">
                               <button
                                 type="button"
@@ -572,8 +611,10 @@ function App() {
                     </p>
                   )}
                   <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
-                    Tip: click a field to highlight it on the page, or click
-                    on a page to add a field at that spot.
+                    Tip: click a field to highlight it on the page. Drag the
+                    highlighted box to move it, drag its corners to resize
+                    it, or type the exact X / Y / W / H above. Click on a
+                    page to add a field at that spot.
                   </p>
                 </aside>
               </div>

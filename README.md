@@ -105,6 +105,22 @@ not thin single-line strips:
   and the filled PDF word-wraps the answer inside the box,
   shrinking the font if needed.
 
+## Adjustable boxes (2026-11-21)
+
+Detection still misses some blanks (a label-less signature table,
+a giant NOTES area), so any box can now be fixed by hand in Setup:
+
+- Click a highlighted box to select it, then drag it to move it.
+- Drag its corner handles to reshape it (width / height).
+- Or type the exact X / Y / W / H (PDF points, from bottom-left)
+  in the field editor.
+- Click on a page to add a field at that spot, then drag/resize it
+  to fit.
+- Detection fixes in the same round: the ⬜ checkbox character
+  (Parent Consent) is now detected, and long sentences ending in
+  ":" ("The following individuals participated…") no longer become
+  phantom fields. IEP is 120 fields (was 119).
+
 ## Slice 5 — what works now (sharing skipped for now)
 
 - After "Check answers" passes (all required fields filled), two new
