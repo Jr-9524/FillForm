@@ -3,13 +3,18 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import { PdfPage } from "./components/PdfPage";
 import pdfjsLib from "./lib/pdfjs";
 import { detectFields } from "./lib/detectFields";
-import { createManualField, sortAndOrderFields } from "./lib/fields";
-import type { DetectedField } from "./lib/fields";
+import {
+  createManualField,
+  renumberFields,
+  sortAndOrderFields,
+} from "./lib/fields";
+import type { DetectedField, FieldType } from "./lib/fields";
 
 /**
- * FillForm — Slice 1: scaffold + PDF upload + preview + blank detection.
+ * FillForm — Slice 2: scaffold + PDF upload + preview + blank detection
+ * + field editor (rename, type, required, include/exclude, reorder, delete).
  *
- * No field editor, no form builder, no sharing, no PDF overlay yet.
+ * No form builder, no sharing, no PDF overlay yet.
  * Those are later slices (see BUILD_PLAN.md).
  */
 function App() {
@@ -103,6 +108,34 @@ function App() {
     );
   }
 
+  // Slice 2: field editor helpers.
+  function updateField(id: string, patch: Partial<DetectedField>) {
+    setFields((prev) =>
+      prev.map((field) => (field.id === id ? { ...field, ...patch } : field)),
+    );
+  }
+
+  function deleteField(id: string) {
+    setFields((prev) =>
+      renumberFields(prev.filter((field) => field.id !== id)),
+    );
+  }
+
+  function moveField(id: string, direction: -1 | 1) {
+    setFields((prev) => {
+      const index = prev.findIndex((field) => field.id === id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return renumberFields(next);
+    });
+  }
+
+  const includedCount = fields.filter((field) => field.included).length;
+  const excludedCount = fields.length - includedCount;
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="border-b border-gray-200 bg-white">
@@ -193,21 +226,107 @@ function App() {
               ) : fields.length > 0 ? (
                 <>
                   <p className="mt-1 text-sm text-gray-600">
-                    {fields.length} {fields.length === 1 ? "field" : "fields"}{" "}
+                    {includedCount} {includedCount === 1 ? "field" : "fields"}{" "}
                     found
+                    {excludedCount > 0 && (
+                      <>
+                        {" · "}
+                        {excludedCount} excluded
+                      </>
+                    )}
                   </p>
-                  <ol className="mt-3 space-y-2">
-                    {fields.map((field) => (
+                  <ol className="mt-3 space-y-3">
+                    {fields.map((field, index) => (
                       <li
                         key={field.id}
-                        className="rounded-md border border-gray-200 px-3 py-2"
+                        className={`rounded-md border border-gray-200 px-3 py-2 ${field.included ? "" : "opacity-50"}`}
                       >
-                        <p className="text-sm font-medium">
-                          {field.order}. {field.label}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          Page {field.page}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-500">
+                            {field.order}.
+                          </span>
+                          <input
+                            type="text"
+                            value={field.label}
+                            aria-label={`Field ${field.order} label`}
+                            onChange={(e) =>
+                              updateField(field.id, { label: e.target.value })
+                            }
+                            className={`min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm font-medium ${field.included ? "" : "line-through"}`}
+                          />
+                          <span className="shrink-0 text-xs text-gray-500">
+                            Page {field.page}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <select
+                            value={field.type}
+                            aria-label={`Field ${field.order} type`}
+                            onChange={(e) =>
+                              updateField(field.id, {
+                                type: e.target.value as FieldType,
+                              })
+                            }
+                            className="rounded border border-gray-300 px-2 py-1 text-sm"
+                          >
+                            <option value="text">Text</option>
+                            <option value="textarea">Long text</option>
+                            <option value="date">Date</option>
+                            <option value="number">Number</option>
+                          </select>
+                          <label className="flex items-center gap-1 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={field.required}
+                              onChange={(e) =>
+                                updateField(field.id, {
+                                  required: e.target.checked,
+                                })
+                              }
+                            />
+                            Required
+                          </label>
+                          <label className="flex items-center gap-1 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={field.included}
+                              onChange={(e) =>
+                                updateField(field.id, {
+                                  included: e.target.checked,
+                                })
+                              }
+                            />
+                            Include
+                          </label>
+                        </div>
+                        <div className="mt-2 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => moveField(field.id, -1)}
+                            disabled={index === 0}
+                            aria-label={`Move field ${field.order} up`}
+                            className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
+                          >
+                            ↑ Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveField(field.id, 1)}
+                            disabled={index === fields.length - 1}
+                            aria-label={`Move field ${field.order} down`}
+                            className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-40"
+                          >
+                            ↓ Down
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteField(field.id)}
+                            aria-label={`Delete field ${field.order}`}
+                            className="ml-auto rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ol>
